@@ -227,9 +227,34 @@ npm run monitor:stop    # Stop monitoring stack
 - [Kubernetes Security Hardening](./docs/tutorials/k8s-security.md)
 - [Implementing Zero Trust Architecture](./docs/tutorials/zero-trust.md)
 
+## 📚 Documentation
+
+### 📖 **Complete Documentation Hub**
+All comprehensive documentation is centralized in the [`docs/`](./docs/) folder:
+
+| 📋 Category | 📖 Document | 🎯 Purpose |
+|-------------|-------------|------------|
+| **🚀 Setup Guides** | [📖 Documentation Center](./docs/README.md) | Central documentation hub with all guides |
+| **☁️ Cloud Setup** | [🌟 GCP Complete Setup](./docs/GCP_COMPLETE_SETUP_GUIDE.md) | Step-by-step Google Cloud Platform setup |
+| **🔄 Workflows** | [📋 Workflow Use Cases](./docs/WORKFLOW_USE_CASES.md) | Complete workflow scenarios and team processes |
+| **🛡️ Security** | [🔒 Security Policy](./docs/SECURITY_POLICY.md) | Comprehensive security policies and procedures |
+| **⚡ Best Practices** | [🛡️ DevSecOps Guide](./docs/BEST_PRACTICES.md) | Best practices and implementation guidelines |
+| **🤝 Community** | [👥 Contributing Guide](./docs/CONTRIBUTING.md) | How to contribute to the project |
+
+### 📁 **Project Documentation**
+Individual project READMEs are organized in [`projects/`](./projects/) folder:
+- **🎨 Frontend Projects:** [React App](./projects/frontend/react-app/README.md) | [More Projects](./projects/README.md)
+- **⚙️ Backend Projects:** [Node.js API](./projects/backend/nodejs-api/README.md) | [More Projects](./projects/README.md)
+
+### 🎯 **Quick Navigation**
+- 🚀 **New to DevSecOps?** Start with [Documentation Center](./docs/README.md)
+- ☁️ **Want to deploy?** Follow [GCP Setup Guide](./docs/GCP_COMPLETE_SETUP_GUIDE.md)
+- 🔄 **Understanding workflows?** Read [Workflow Use Cases](./docs/WORKFLOW_USE_CASES.md)
+- 🛡️ **Security focus?** Check [Security Policy](./docs/SECURITY_POLICY.md)
+
 ## 🤝 Contributing
 
-Please read our [Contributing Guide](./CONTRIBUTING.md) and [Code of Conduct](./CODE_OF_CONDUCT.md) before contributing.
+Please read our [Contributing Guide](./docs/CONTRIBUTING.md) and [Code of Conduct](./docs/CODE_OF_CONDUCT.md) before contributing.
 
 ### Development Workflow
 1. Fork the repository
