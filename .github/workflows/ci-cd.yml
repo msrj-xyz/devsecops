@@ -209,7 +209,11 @@ jobs:
       if: matrix.runtime == 'node'
       working-directory: ${{ matrix.path }}
       run: |
-        npm ci
+        if [ -f "package-lock.json" ]; then
+          npm ci
+        else
+          npm install
+        fi
         npm audit --audit-level=moderate
 
     - name: 📦 Install Dependencies - Python

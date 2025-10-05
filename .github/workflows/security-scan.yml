@@ -64,7 +64,11 @@ jobs:
       working-directory: projects/frontend/react-app
       run: |
         if [ -f "package.json" ]; then
-          npm ci
+          if [ -f "package-lock.json" ]; then
+            npm ci
+          else
+            npm install
+          fi
         fi
 
     - name: 🏗️ Install Python Dependencies
