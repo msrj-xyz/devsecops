@@ -1,0 +1,29 @@
+# CodeQL Configuration for DevSecOps Security Analysis
+name: "DevSecOps Security Analysis"
+
+# Use default queries plus security-focused enhancements
+disable-default-queries: false
+
+# Additional query suites for comprehensive security analysis
+queries:
+  - uses: security-extended
+  - uses: security-and-quality
+
+# Path filters - focus on application code
+paths:
+  - projects/
+  - src/
+  - app/
+  - lib/
+
+# Ignore paths that don't need analysis  
+paths-ignore:
+  - node_modules/
+  - dist/
+  - build/
+  - target/
+  - vendor/
+  - .git/
+  - docs/
+  - "**/*.md"
+  - "**/*.json"
