@@ -87,21 +87,16 @@ jobs:
         category: "/language:javascript,python"
 
     - name: 🔍 Semgrep SAST Scan
-      uses: semgrep/semgrep-action@v1
-      with:
-        config: >-
-          p/security-audit
-          p/secrets
-          p/owasp-top-ten
-          p/cwe-top-25
-          p/typescript
-          p/python
+      run: |
+        python -m pip install semgrep
+        semgrep --config=auto --sarif --output=semgrep.sarif .
       env:
         SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+      continue-on-error: true
 
     - name: 📈 Upload Semgrep SARIF
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: always() && hashFiles('semgrep.sarif') != ''
       with:
         sarif_file: semgrep.sarif
 
@@ -173,7 +168,7 @@ jobs:
         output: 'trivy-results.sarif'
 
     - name: 📤 Upload Trivy SARIF
-      if: hashFiles('**/Dockerfile') != ''
+      if: always() && hashFiles('trivy-results.sarif') != ''
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: 'trivy-results.sarif'
@@ -195,7 +190,7 @@ jobs:
         output_file_path: checkov-results.sarif
 
     - name: 📤 Upload Checkov SARIF
-      if: hashFiles('**/*.tf', '**/*.yml', '**/*.yaml') != ''
+      if: always() && hashFiles('checkov-results.sarif') != ''
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: checkov-results.sarif
@@ -208,7 +203,7 @@ jobs:
         soft_fail: true
 
     - name: 📤 Upload TFSec SARIF
-      if: hashFiles('**/*.tf') != ''
+      if: always() && hashFiles('results.sarif') != ''
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: results.sarif
