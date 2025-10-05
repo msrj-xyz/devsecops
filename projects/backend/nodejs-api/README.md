@@ -1,13 +1,16 @@
-# Secure Node.js API
+# DevSecOps Node.js API
 
-A production-ready, security-hardened Node.js REST API demonstrating enterprise-grade DevSecOps practices.
+A security-hardened Node.js API demonstrating enterprise-level DevSecOps practices with comprehensive security controls and monitoring.
 
 ## 🛡️ Security Features
 
-### API Security
-- **Rate Limiting** with Redis backend
-- **Input Validation** with Joi schemas
-- **SQL Injection Protection** with parameterized queries
+### 🔒 **Security Middleware**
+- **Helmet.js** - Security headers and protection
+- **CORS** - Cross-Origin Resource Sharing protection
+- **Rate Limiting** - API abuse prevention
+- **Input Validation** - XSS and injection protection
+- **Content Security Policy** - Script execution control
+- **HSTS** - HTTP Strict Transport Security
 - **NoSQL Injection Protection** with input sanitization
 - **CORS** configuration with whitelist
 - **Helmet.js** for security headers
