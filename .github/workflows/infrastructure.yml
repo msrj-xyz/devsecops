@@ -1,0 +1,145 @@
+name: 🏗️ Infrastructure Validation
+
+on:
+  push:
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/infrastructure.yml'
+  pull_request:
+    paths:
+      - 'infrastructure/**'
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.6.0'
+  TFLINT_VERSION: 'v0.48.0'
+  CHECKOV_VERSION: '3.0.0'
+
+jobs:
+  terraform-validate:
+    name: 🔍 Terraform Validation
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, staging, production]
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🏗️ Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: 🔧 Terraform Init
+      working-directory: infrastructure/terraform
+      run: terraform init -backend=false
+
+    - name: ✅ Terraform Validate
+      working-directory: infrastructure/terraform
+      run: terraform validate
+
+    - name: 📋 Terraform Format Check
+      working-directory: infrastructure/terraform
+      run: terraform fmt -check -recursive
+
+    - name: 📊 Terraform Plan
+      working-directory: infrastructure/terraform
+      run: |
+        terraform plan -var-file="environments/${{ matrix.environment }}.tfvars" -out=${{ matrix.environment }}.tfplan
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: 📤 Upload Terraform Plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-${{ matrix.environment }}
+        path: infrastructure/terraform/${{ matrix.environment }}.tfplan
+
+  security-scan:
+    name: 🛡️ Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔍 Checkov Scan
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: infrastructure/
+        framework: terraform,kubernetes,dockerfile
+        output_format: sarif
+        output_file_path: checkov-results.sarif
+        soft_fail: false
+
+    - name: 📤 Upload Checkov Results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: checkov-results.sarif
+
+    - name: 🔍 TFSec Scan
+      uses: aquasecurity/tfsec-action@v1.0.3
+      with:
+        working_directory: infrastructure/terraform
+        soft_fail: false
+
+    - name: 🔍 Kubesec Scan
+      run: |
+        if [ -d "infrastructure/kubernetes" ]; then
+          docker run --rm -v $(pwd):/workspace kubesec/kubesec:latest scan /workspace/infrastructure/kubernetes/*.yaml
+        fi
+
+  cost-estimation:
+    name: 💰 Cost Estimation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🏗️ Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: 💰 Infracost Estimate
+      uses: infracost/actions/setup@v2
+      with:
+        api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+    - name: 📊 Generate Cost Report
+      run: |
+        cd infrastructure/terraform
+        infracost breakdown --path . --format json --out-file infracost.json
+        infracost comment github --path infracost.json \
+          --repo ${{ github.repository }} \
+          --github-token ${{ secrets.GITHUB_TOKEN }} \
+          --pull-request ${{ github.event.number }}
+
+  compliance-check:
+    name: 📋 Compliance Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔍 CIS Benchmark Check
+      run: |
+        echo "🔍 Running CIS benchmark validation..."
+        # Add CIS benchmark validation logic here
+        
+    - name: 🔍 NIST Framework Check
+      run: |
+        echo "🔍 Running NIST framework validation..."
+        # Add NIST framework validation logic here
+        
+    - name: 🔍 SOX Compliance Check
+      run: |
+        echo "🔍 Running SOX compliance validation..."
+        # Add SOX compliance validation logic here

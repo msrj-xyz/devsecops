@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+vendor/
+venv/
+__pycache__/
+
+# Build outputs
+dist/
+build/
+target/
+*.jar
+*.war
+*.ear
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets and Environment
+.env
+.env.local
+.env.production
+*.pem
+*.key
+secrets/
+credentials/
+
+# Logs
+*.log
+logs/
+
+# Testing
+coverage/
+.nyc_output/
+junit.xml
+
+# Security scanning results
+dependency-check-report.html
+bandit-report.json
+safety-report.json
+trivy-results.json
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Docker
+.dockerignore
+
+# CI/CD artifacts
+.github/workflows/cache/

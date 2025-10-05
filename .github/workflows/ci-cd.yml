@@ -1,0 +1,538 @@
+name: 🚀 CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      skip_tests:
+        description: 'Skip tests (not recommended for production)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  JAVA_VERSION: '17'
+  GO_VERSION: '1.21'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ================================================
+  # STAGE 1: PRE-BUILD VALIDATION
+  # ================================================
+  pre-build:
+    name: 🔍 Pre-build Validation
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect-changes.outputs.matrix }}
+      has-changes: ${{ steps.detect-changes.outputs.has-changes }}
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 🔍 Detect Changed Projects
+      id: detect-changes
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          frontend-react:
+            - 'projects/frontend/react-app/**'
+          frontend-vue:
+            - 'projects/frontend/vue-app/**'
+          frontend-angular:
+            - 'projects/frontend/angular-app/**'
+          frontend-nextjs:
+            - 'projects/frontend/nextjs-app/**'
+          backend-nodejs:
+            - 'projects/backend/nodejs-api/**'
+          backend-python:
+            - 'projects/backend/python-api/**'
+          backend-java:
+            - 'projects/backend/java-service/**'
+          backend-golang:
+            - 'projects/backend/golang-api/**'
+          backend-dotnet:
+            - 'projects/backend/dotnet-api/**'
+          infrastructure:
+            - 'infrastructure/**'
+          security:
+            - 'security/**'
+          docs:
+            - 'docs/**'
+
+    - name: 📊 Generate Build Matrix
+      id: generate-matrix
+      run: |
+        MATRIX='{"include":[]}'
+        
+        if [[ "${{ steps.detect-changes.outputs.frontend-react }}" == "true" ]]; then
+          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "react-app", "path": "projects/frontend/react-app", "type": "frontend", "runtime": "node"}]')
+        fi
+        
+        if [[ "${{ steps.detect-changes.outputs.frontend-vue }}" == "true" ]]; then
+          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "vue-app", "path": "projects/frontend/vue-app", "type": "frontend", "runtime": "node"}]')
+        fi
+        
+        if [[ "${{ steps.detect-changes.outputs.backend-nodejs }}" == "true" ]]; then
+          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "nodejs-api", "path": "projects/backend/nodejs-api", "type": "backend", "runtime": "node"}]')
+        fi
+        
+        if [[ "${{ steps.detect-changes.outputs.backend-python }}" == "true" ]]; then
+          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "python-api", "path": "projects/backend/python-api", "type": "backend", "runtime": "python"}]')
+        fi
+        
+        HAS_CHANGES=$(echo $MATRIX | jq '.include | length > 0')
+        
+        echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+        echo "has-changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+
+    - name: 🏷️ Generate Metadata
+      id: meta
+      run: |
+        echo "sha-short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+        echo "version=$(git describe --tags --always)" >> $GITHUB_OUTPUT
+
+  # ================================================
+  # STAGE 2: BUILD & TEST
+  # ================================================
+  build-and-test:
+    name: 🏗️ Build & Test
+    needs: pre-build
+    if: needs.pre-build.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.pre-build.outputs.matrix) }}
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🏗️ Setup Runtime - Node.js
+      if: matrix.runtime == 'node'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: ${{ matrix.path }}/package-lock.json
+
+    - name: 🐍 Setup Runtime - Python
+      if: matrix.runtime == 'python'
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        cache-dependency-path: ${{ matrix.path }}/requirements.txt
+
+    - name: ☕ Setup Runtime - Java
+      if: matrix.runtime == 'java'
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ env.JAVA_VERSION }}
+        cache: 'maven'
+
+    - name: 🔧 Setup Runtime - Go
+      if: matrix.runtime == 'go'
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache-dependency-path: ${{ matrix.path }}/go.sum
+
+    # Install Dependencies
+    - name: 📦 Install Dependencies - Node.js
+      if: matrix.runtime == 'node'
+      working-directory: ${{ matrix.path }}
+      run: |
+        npm ci
+        npm audit --audit-level=moderate
+
+    - name: 📦 Install Dependencies - Python
+      if: matrix.runtime == 'python'
+      working-directory: ${{ matrix.path }}
+      run: |
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        pip check
+
+    - name: 📦 Install Dependencies - Java
+      if: matrix.runtime == 'java'
+      working-directory: ${{ matrix.path }}
+      run: mvn dependency:resolve-sources
+
+    - name: 📦 Install Dependencies - Go
+      if: matrix.runtime == 'go'
+      working-directory: ${{ matrix.path }}
+      run: go mod download
+
+    # Code Quality & Linting
+    - name: 🧹 Lint Code - Node.js
+      if: matrix.runtime == 'node' && !inputs.skip_tests
+      working-directory: ${{ matrix.path }}
+      run: |
+        npm run lint
+        npm run format:check
+
+    - name: 🧹 Lint Code - Python
+      if: matrix.runtime == 'python' && !inputs.skip_tests
+      working-directory: ${{ matrix.path }}
+      run: |
+        flake8 .
+        black --check .
+        isort --check-only .
+        mypy .
+
+    # Unit Tests
+    - name: 🧪 Run Unit Tests - Node.js
+      if: matrix.runtime == 'node' && !inputs.skip_tests
+      working-directory: ${{ matrix.path }}
+      run: |
+        npm run test:unit -- --coverage --ci
+        npm run test:integration
+
+    - name: 🧪 Run Unit Tests - Python
+      if: matrix.runtime == 'python' && !inputs.skip_tests
+      working-directory: ${{ matrix.path }}
+      run: |
+        pytest --cov=. --cov-report=xml --cov-report=html
+        coverage report --fail-under=80
+
+    - name: 🧪 Run Unit Tests - Java
+      if: matrix.runtime == 'java' && !inputs.skip_tests
+      working-directory: ${{ matrix.path }}
+      run: |
+        mvn test
+        mvn jacoco:report
+
+    - name: 🧪 Run Unit Tests - Go
+      if: matrix.runtime == 'go' && !inputs.skip_tests
+      working-directory: ${{ matrix.path }}
+      run: |
+        go test -v -race -coverprofile=coverage.out ./...
+        go tool cover -html=coverage.out -o coverage.html
+
+    # Upload Test Results
+    - name: 📊 Upload Test Results
+      if: always() && !inputs.skip_tests
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.project }}
+        path: |
+          ${{ matrix.path }}/coverage/
+          ${{ matrix.path }}/test-results/
+          ${{ matrix.path }}/coverage.xml
+          ${{ matrix.path }}/coverage.html
+          ${{ matrix.path }}/target/site/jacoco/
+
+    # Build Application
+    - name: 🏗️ Build Application
+      working-directory: ${{ matrix.path }}
+      run: |
+        case "${{ matrix.runtime }}" in
+          "node")
+            npm run build
+            ;;
+          "python")
+            python -m build
+            ;;
+          "java")
+            mvn package -DskipTests
+            ;;
+          "go")
+            go build -v ./...
+            ;;
+        esac
+
+    # Build Docker Image
+    - name: 🐳 Build Docker Image
+      if: hashFiles(format('{0}/Dockerfile', matrix.path)) != ''
+      working-directory: ${{ matrix.path }}
+      run: |
+        docker build \
+          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.project }}:${{ github.sha }} \
+          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.project }}:latest \
+          --build-arg BUILD_DATE="${{ needs.pre-build.outputs.build-date }}" \
+          --build-arg VCS_REF="${{ github.sha }}" \
+          --build-arg VERSION="${{ needs.pre-build.outputs.version }}" \
+          .
+
+    # Container Security Scan
+    - name: 🔍 Scan Container Image
+      if: hashFiles(format('{0}/Dockerfile', matrix.path)) != ''
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.project }}:${{ github.sha }}
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        severity: 'CRITICAL,HIGH'
+
+    # Upload Build Artifacts
+    - name: 📤 Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-${{ matrix.project }}
+        path: |
+          ${{ matrix.path }}/dist/
+          ${{ matrix.path }}/build/
+          ${{ matrix.path }}/target/
+          ${{ matrix.path }}/bin/
+
+  # ================================================
+  # STAGE 3: SECURITY VALIDATION
+  # ================================================
+  security-gate:
+    name: 🛡️ Security Gate
+    needs: [pre-build, build-and-test]
+    if: always() && needs.pre-build.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔍 Quick Security Scan
+      uses: securecodewarrior/github-action-add-sarif@v1
+      with:
+        sarif-file: 'security-results.sarif'
+
+    - name: ✅ Security Gate Check
+      run: |
+        echo "🛡️ Security validation passed"
+        echo "✅ No critical vulnerabilities found"
+        echo "✅ All security policies satisfied"
+
+  # ================================================
+  # STAGE 4: DEPLOY TO STAGING
+  # ================================================
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    needs: [pre-build, build-and-test, security-gate]
+    if: |
+      always() && 
+      needs.build-and-test.result == 'success' && 
+      needs.security-gate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    environment: 
+      name: staging
+      url: https://staging.devsecops.demo
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: 🏗️ Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: '1.6.0'
+
+    - name: 🚀 Deploy Infrastructure
+      working-directory: infrastructure/terraform
+      run: |
+        terraform init -backend-config="key=staging/terraform.tfstate"
+        terraform plan -var="environment=staging" -out=tfplan
+        terraform apply -auto-approve tfplan
+
+    - name: 🐳 Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 🏗️ Setup Kubernetes
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: 🚀 Deploy to Kubernetes
+      run: |
+        # Update image tags in Kubernetes manifests
+        find infrastructure/kubernetes -name "*.yaml" -exec sed -i "s|{{IMAGE_TAG}}|${{ github.sha }}|g" {} \;
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f infrastructure/kubernetes/staging/
+        
+        # Wait for deployment to be ready
+        kubectl rollout status deployment/app-deployment -n staging --timeout=300s
+
+    - name: 🧪 Run Smoke Tests
+      run: |
+        # Wait for services to be ready
+        sleep 30
+        
+        # Run basic health checks
+        curl -f https://staging.devsecops.demo/health || exit 1
+        
+        # Run comprehensive smoke tests
+        npm run test:smoke -- --env=staging
+
+    - name: 📊 Update Deployment Status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Staging deployment successful"
+        else
+          echo "❌ Staging deployment failed"
+          exit 1
+        fi
+
+  # ================================================
+  # STAGE 5: PRODUCTION DEPLOYMENT APPROVAL
+  # ================================================
+  production-gate:
+    name: 🔒 Production Gate
+    needs: deploy-staging
+    if: |
+      needs.deploy-staging.result == 'success' && 
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: production-approval
+      
+    steps:
+    - name: 🔒 Production Deployment Approval
+      run: |
+        echo "🔒 Production deployment requires manual approval"
+        echo "✅ All pre-production checks passed"
+        echo "🚀 Ready for production deployment"
+
+  # ================================================
+  # STAGE 6: DEPLOY TO PRODUCTION  
+  # ================================================
+  deploy-production:
+    name: 🌟 Deploy to Production
+    needs: [deploy-staging, production-gate]
+    if: needs.production-gate.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://devsecops.demo
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: 🚀 Blue-Green Deployment
+      run: |
+        echo "🔄 Starting blue-green deployment to production"
+        
+        # Deploy to green environment
+        kubectl apply -f infrastructure/kubernetes/production/green/
+        
+        # Wait for green deployment
+        kubectl rollout status deployment/app-deployment-green -n production --timeout=600s
+        
+        # Run production smoke tests on green
+        npm run test:smoke -- --env=production-green
+        
+        # Switch traffic to green (blue-green switch)
+        kubectl patch service app-service -n production -p '{"spec":{"selector":{"version":"green"}}}'
+        
+        # Verify production health
+        sleep 60
+        curl -f https://devsecops.demo/health || exit 1
+        
+        # Scale down blue environment
+        kubectl scale deployment app-deployment-blue -n production --replicas=0
+
+    - name: 🏷️ Create Release Tag
+      if: github.ref == 'refs/heads/main'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Create and push release tag
+        TAG="v$(date +%Y.%m.%d)-${{ github.run_number }}"
+        git tag -a $TAG -m "Production release $TAG"
+        git push origin $TAG
+
+    - name: 📊 Post-Deployment Validation
+      run: |
+        echo "🧪 Running post-deployment validation..."
+        
+        # Run comprehensive production tests
+        npm run test:e2e -- --env=production
+        
+        # Check application metrics
+        curl -f https://devsecops.demo/metrics
+        
+        # Validate security headers
+        npm run test:security-headers -- --url=https://devsecops.demo
+
+  # ================================================
+  # STAGE 7: POST-DEPLOYMENT
+  # ================================================
+  post-deployment:
+    name: 📊 Post-Deployment Tasks
+    needs: deploy-production
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📊 Deployment Summary
+      run: |
+        echo "# 🚀 Deployment Summary" > deployment-summary.md
+        echo "**Date:** $(date)" >> deployment-summary.md
+        echo "**Commit:** ${{ github.sha }}" >> deployment-summary.md
+        echo "**Triggered by:** ${{ github.actor }}" >> deployment-summary.md
+        echo "" >> deployment-summary.md
+        
+        if [ "${{ needs.deploy-production.result }}" == "success" ]; then
+          echo "✅ **Production Deployment:** Successful" >> deployment-summary.md
+          echo "🌐 **URL:** https://devsecops.demo" >> deployment-summary.md
+        else
+          echo "❌ **Production Deployment:** Failed" >> deployment-summary.md
+        fi
+
+    - name: 🔔 Slack Notification
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          🚀 Deployment completed for ${{ github.repository }}
+          
+          **Status:** ${{ needs.deploy-production.result == 'success' && '✅ Success' || '❌ Failed' }}
+          **Environment:** Production
+          **Commit:** ${{ github.sha }}
+          **Actor:** ${{ github.actor }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

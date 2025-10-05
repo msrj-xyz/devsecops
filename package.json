@@ -1,0 +1,187 @@
+{
+  "name": "devsecops-portfolio",
+  "version": "1.0.0",
+  "description": "Comprehensive DevSecOps Portfolio showcasing security-first development practices, automated CI/CD pipelines, and infrastructure as code implementations",
+  "main": "index.js",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "dev": "npm run dev:frontend & npm run dev:backend",
+    "build": "npm run build:frontend && npm run build:backend",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "jest --coverage --detectOpenHandles",
+    "test:integration": "jest --config jest.integration.config.js",
+    "test:e2e": "playwright test",
+    "test:security": "npm run security:scan && npm run test:unit -- --testNamePattern='security'",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "security:scan": "npm run security:secrets && npm run security:deps && npm run security:sast",
+    "security:secrets": "gitleaks detect --verbose --report-format json --report-path reports/gitleaks-report.json",
+    "security:deps": "npm audit --audit-level=moderate && snyk test --severity-threshold=medium",
+    "security:sast": "semgrep --config=auto --json --output=reports/semgrep-report.json .",
+    "security:fix": "npm audit fix && snyk wizard",
+    "infra:validate": "cd infrastructure/terraform && terraform validate && terraform fmt -check",
+    "infra:plan": "cd infrastructure/terraform && terraform plan -var-file=environments/dev.tfvars",
+    "infra:apply": "cd infrastructure/terraform && terraform apply -var-file=environments/dev.tfvars",
+    "infra:destroy": "cd infrastructure/terraform && terraform destroy -var-file=environments/dev.tfvars",
+    "infra:scan": "checkov -d infrastructure --framework terraform --output json --output-file reports/checkov-report.json",
+    "docker:build": "docker build -t devsecops-portfolio .",
+    "docker:scan": "trivy image devsecops-portfolio --format json --output reports/trivy-report.json",
+    "k8s:validate": "kubeval infrastructure/kubernetes/**/*.yaml",
+    "k8s:deploy": "kubectl apply -f infrastructure/kubernetes/",
+    "k8s:delete": "kubectl delete -f infrastructure/kubernetes/",
+    "monitor:start": "docker-compose -f monitoring/docker-compose.yml up -d",
+    "monitor:stop": "docker-compose -f monitoring/docker-compose.yml down",
+    "docs:generate": "jsdoc -d docs/api -r .",
+    "docs:serve": "npx http-server docs -p 8080",
+    "compliance:check": "npm run security:scan && npm run infra:scan && npm run test:security",
+    "precommit": "lint-staged",
+    "prepare": "husky install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/msrj-xyz/devsecops.git"
+  },
+  "keywords": [
+    "devsecops",
+    "security",
+    "ci-cd",
+    "kubernetes",
+    "terraform",
+    "docker",
+    "monitoring",
+    "compliance",
+    "infrastructure-as-code",
+    "gitops",
+    "security-scanning",
+    "vulnerability-management",
+    "policy-as-code",
+    "sast",
+    "dast",
+    "sca"
+  ],
+  "author": {
+    "name": "DevSecOps Engineer",
+    "email": "devsecops@example.com",
+    "url": "https://github.com/msrj-xyz"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/msrj-xyz/devsecops/issues"
+  },
+  "homepage": "https://github.com/msrj-xyz/devsecops#readme",
+  "devDependencies": {
+    "@types/jest": "^29.5.5",
+    "@types/node": "^20.8.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.4",
+    "@typescript-eslint/parser": "^6.7.4",
+    "eslint": "^8.50.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-security": "^1.7.1",
+    "husky": "^8.0.3",
+    "jest": "^29.7.0",
+    "lint-staged": "^14.0.1",
+    "playwright": "^1.38.1",
+    "prettier": "^3.0.3",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "helmet": "^7.0.0",
+    "cors": "^2.8.5",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.3.1",
+    "joi": "^17.11.0",
+    "rate-limiter-flexible": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    "*.{tf,tfvars}": [
+      "terraform fmt"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm run test:security",
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+    }
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.{js,jsx,ts,tsx}",
+      "!src/**/*.d.ts",
+      "!src/**/*.test.{js,jsx,ts,tsx}"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    },
+    "testMatch": [
+      "<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}",
+      "<rootDir>/src/**/*.{spec,test}.{js,jsx,ts,tsx}"
+    ]
+  },
+  "eslintConfig": {
+    "extends": [
+      "eslint:recommended",
+      "@typescript-eslint/recommended",
+      "plugin:security/recommended",
+      "prettier"
+    ],
+    "plugins": [
+      "@typescript-eslint",
+      "security"
+    ],
+    "rules": {
+      "security/detect-object-injection": "error",
+      "security/detect-non-literal-regexp": "error",
+      "security/detect-unsafe-regex": "error",
+      "security/detect-buffer-noassert": "error",
+      "security/detect-child-process": "error",
+      "security/detect-disable-mustache-escape": "error",
+      "security/detect-eval-with-expression": "error",
+      "security/detect-no-csrf-before-method-override": "error",
+      "security/detect-non-literal-fs-filename": "error",
+      "security/detect-non-literal-require": "error",
+      "security/detect-possible-timing-attacks": "error",
+      "security/detect-pseudoRandomBytes": "error"
+    }
+  },
+  "prettier": {
+    "semi": true,
+    "trailingComma": "es5",
+    "singleQuote": true,
+    "printWidth": 100,
+    "tabWidth": 2,
+    "useTabs": false
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
