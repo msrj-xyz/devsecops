@@ -265,7 +265,7 @@ Any additional information reviewers should know.
 **DO NOT** create public issues for security vulnerabilities.
 
 Instead:
-1. Email security@yourcompany.com
+1. Email msrj.xyz@gmail.com
 2. Use GitHub's private vulnerability reporting
 3. Include detailed reproduction steps
 4. Provide impact assessment
@@ -276,7 +276,7 @@ Instead:
 A clear and concise description of what the bug is.
 
 **Security Impact** 
-Is this a security-related bug? If yes, please email security@yourcompany.com instead.
+Is this a security-related bug? If yes, please email msrj.xyz@gmail.com instead.
 
 **To Reproduce**
 Steps to reproduce the behavior:
@@ -325,7 +325,7 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
 - **GitHub Issues**: Bug reports and feature requests
 - **GitHub Discussions**: Questions and community discussions
 - **Slack**: Real-time team communication (invite only)
-- **Email**: security@yourcompany.com for security issues
+- **Email**: msrj.xyz@gmail.com for security issues
 
 #### Recognition
 Contributors will be recognized in:

@@ -290,7 +290,7 @@ monitoring:
 ---
 
 **Document Version**: 1.0  
-**Last Updated**: October 2024  
-**Next Review Date**: October 2025  
-**Owner**: DevSecOps Engineering Team  
-**Approved By**: Chief Information Security Officer (CISO)
+**Last Updated**: October 2025  
+**Next Review Date**: October 2026  
+**Owner**: msrj-xyz (DevSecOps Engineer)  
+**Contact**: msrj.xyz@gmail.com

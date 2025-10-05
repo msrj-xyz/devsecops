@@ -240,9 +240,9 @@ Please read our [Contributing Guide](./CONTRIBUTING.md) and [Code of Conduct](./
 
 ## 📞 Contact
 
-- **LinkedIn**: [Your LinkedIn Profile]
-- **Email**: your.email@domain.com
-- **Portfolio**: [Your Portfolio Website]
+- **GitHub**: [@msrj-xyz](https://github.com/msrj-xyz)
+- **Email**: msrj.xyz@gmail.com
+- **Portfolio**: [DevSecOps Portfolio](https://github.com/msrj-xyz/devsecops)
 
 ## 📜 License
 
