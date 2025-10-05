@@ -85,8 +85,8 @@ jobs:
     name: 🔍 Pre-build Validation
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.detect-changes.outputs.matrix }}
-      has-changes: ${{ steps.detect-changes.outputs.has-changes }}
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has-changes: ${{ steps.generate-matrix.outputs.has-changes }}
     
     steps:
     - name: 📥 Checkout Code
@@ -129,26 +129,29 @@ jobs:
       run: |
         MATRIX='{"include":[]}'
         
-        if [[ "${{ steps.detect-changes.outputs.frontend-react }}" == "true" ]]; then
+        # Add existing projects to matrix based on changes or force build all on main branch
+        if [[ "${{ steps.detect-changes.outputs.frontend-react }}" == "true" ]] || [[ -d "projects/frontend/react-app" ]]; then
           MATRIX=$(echo $MATRIX | jq '.include += [{"project": "react-app", "path": "projects/frontend/react-app", "type": "frontend", "runtime": "node"}]')
         fi
         
-        if [[ "${{ steps.detect-changes.outputs.frontend-vue }}" == "true" ]]; then
-          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "vue-app", "path": "projects/frontend/vue-app", "type": "frontend", "runtime": "node"}]')
-        fi
-        
-        if [[ "${{ steps.detect-changes.outputs.backend-nodejs }}" == "true" ]]; then
+        if [[ "${{ steps.detect-changes.outputs.backend-nodejs }}" == "true" ]] || [[ -d "projects/backend/nodejs-api" ]]; then
           MATRIX=$(echo $MATRIX | jq '.include += [{"project": "nodejs-api", "path": "projects/backend/nodejs-api", "type": "backend", "runtime": "node"}]')
         fi
         
-        if [[ "${{ steps.detect-changes.outputs.backend-python }}" == "true" ]]; then
-          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "python-api", "path": "projects/backend/python-api", "type": "backend", "runtime": "python"}]')
-        fi
+        # Remove Vue and Python projects that don't exist yet
+        # if [[ "${{ steps.detect-changes.outputs.frontend-vue }}" == "true" ]]; then
+        #   MATRIX=$(echo $MATRIX | jq '.include += [{"project": "vue-app", "path": "projects/frontend/vue-app", "type": "frontend", "runtime": "node"}]')
+        # fi
+        
+        # if [[ "${{ steps.detect-changes.outputs.backend-python }}" == "true" ]]; then
+        #   MATRIX=$(echo $MATRIX | jq '.include += [{"project": "python-api", "path": "projects/backend/python-api", "type": "backend", "runtime": "python"}]')
+        # fi
         
         HAS_CHANGES=$(echo $MATRIX | jq '.include | length > 0')
         
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
         echo "has-changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+        echo "Generated matrix: $MATRIX"
 
     - name: 🏷️ Generate Metadata
       id: meta
