@@ -127,33 +127,28 @@ jobs:
     - name: 📊 Generate Build Matrix
       id: generate-matrix
       run: |
-        MATRIX='{"include":[]}'
+        # Create matrix with existing projects
+        MATRIX=$(jq -n '{"include": []}')
         
         # Always include existing projects to prevent empty matrix
         if [[ -d "projects/frontend/react-app" ]]; then
           echo "Adding react-app to matrix"
-          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "react-app", "path": "projects/frontend/react-app", "type": "frontend", "runtime": "node"}]')
+          MATRIX=$(echo "$MATRIX" | jq '.include += [{"project": "react-app", "path": "projects/frontend/react-app", "type": "frontend", "runtime": "node"}]')
         fi
         
         if [[ -d "projects/backend/nodejs-api" ]]; then
           echo "Adding nodejs-api to matrix"
-          MATRIX=$(echo $MATRIX | jq '.include += [{"project": "nodejs-api", "path": "projects/backend/nodejs-api", "type": "backend", "runtime": "node"}]')
+          MATRIX=$(echo "$MATRIX" | jq '.include += [{"project": "nodejs-api", "path": "projects/backend/nodejs-api", "type": "backend", "runtime": "node"}]')
         fi
         
-        # Future projects (commented out until implemented)
-        # if [[ -d "projects/frontend/vue-app" ]] && [[ "${{ steps.detect-changes.outputs.frontend-vue }}" == "true" ]]; then
-        #   MATRIX=$(echo $MATRIX | jq '.include += [{"project": "vue-app", "path": "projects/frontend/vue-app", "type": "frontend", "runtime": "node"}]')
-        # fi
+        HAS_CHANGES=$(echo "$MATRIX" | jq '.include | length > 0')
         
-        # if [[ -d "projects/backend/python-api" ]] && [[ "${{ steps.detect-changes.outputs.backend-python }}" == "true" ]]; then
-        #   MATRIX=$(echo $MATRIX | jq '.include += [{"project": "python-api", "path": "projects/backend/python-api", "type": "backend", "runtime": "python"}]')
-        # fi
+        # Compact JSON output to avoid multiline issues
+        MATRIX_COMPACT=$(echo "$MATRIX" | jq -c .)
         
-        HAS_CHANGES=$(echo $MATRIX | jq '.include | length > 0')
-        
-        echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+        echo "matrix=$MATRIX_COMPACT" >> $GITHUB_OUTPUT
         echo "has-changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
-        echo "Final matrix: $MATRIX"
+        echo "Generated matrix: $MATRIX_COMPACT"
         echo "Has changes: $HAS_CHANGES"
 
     - name: 🏷️ Generate Metadata
@@ -184,8 +179,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        cache-dependency-path: ${{ matrix.path }}/package-lock.json
 
     - name: 🐍 Setup Runtime - Python
       if: matrix.runtime == 'python'
