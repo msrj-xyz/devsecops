@@ -2,9 +2,9 @@ name: 🔐 Comprehensive Security Scan
 
 on:
   push:
-    branches: [ master, staging, development ]
+    branches: [ master, staging, development, 'feature/*' ]
   pull_request:
-    branches: [ master, staging ]
+    branches: [ master, staging, development ]
   schedule:
     # Run daily security scan at 2 AM UTC
     - cron: '0 2 * * *'

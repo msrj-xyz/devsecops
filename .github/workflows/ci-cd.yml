@@ -2,9 +2,9 @@ name: 🚀 CI/CD Pipeline
 
 on:
   push:
-    branches: [ master, staging, development ]
+    branches: [ master, staging, development, 'feature/*' ]
   pull_request:
-    branches: [ master, staging ]
+    branches: [ master, staging, development ]
   workflow_dispatch:
     inputs:
       environment:
