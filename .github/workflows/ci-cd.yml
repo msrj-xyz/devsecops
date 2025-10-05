@@ -129,21 +129,23 @@ jobs:
       run: |
         MATRIX='{"include":[]}'
         
-        # Add existing projects to matrix based on changes or force build all on main branch
-        if [[ "${{ steps.detect-changes.outputs.frontend-react }}" == "true" ]] || [[ -d "projects/frontend/react-app" ]]; then
+        # Always include existing projects to prevent empty matrix
+        if [[ -d "projects/frontend/react-app" ]]; then
+          echo "Adding react-app to matrix"
           MATRIX=$(echo $MATRIX | jq '.include += [{"project": "react-app", "path": "projects/frontend/react-app", "type": "frontend", "runtime": "node"}]')
         fi
         
-        if [[ "${{ steps.detect-changes.outputs.backend-nodejs }}" == "true" ]] || [[ -d "projects/backend/nodejs-api" ]]; then
+        if [[ -d "projects/backend/nodejs-api" ]]; then
+          echo "Adding nodejs-api to matrix"
           MATRIX=$(echo $MATRIX | jq '.include += [{"project": "nodejs-api", "path": "projects/backend/nodejs-api", "type": "backend", "runtime": "node"}]')
         fi
         
-        # Remove Vue and Python projects that don't exist yet
-        # if [[ "${{ steps.detect-changes.outputs.frontend-vue }}" == "true" ]]; then
+        # Future projects (commented out until implemented)
+        # if [[ -d "projects/frontend/vue-app" ]] && [[ "${{ steps.detect-changes.outputs.frontend-vue }}" == "true" ]]; then
         #   MATRIX=$(echo $MATRIX | jq '.include += [{"project": "vue-app", "path": "projects/frontend/vue-app", "type": "frontend", "runtime": "node"}]')
         # fi
         
-        # if [[ "${{ steps.detect-changes.outputs.backend-python }}" == "true" ]]; then
+        # if [[ -d "projects/backend/python-api" ]] && [[ "${{ steps.detect-changes.outputs.backend-python }}" == "true" ]]; then
         #   MATRIX=$(echo $MATRIX | jq '.include += [{"project": "python-api", "path": "projects/backend/python-api", "type": "backend", "runtime": "python"}]')
         # fi
         
@@ -151,7 +153,8 @@ jobs:
         
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
         echo "has-changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
-        echo "Generated matrix: $MATRIX"
+        echo "Final matrix: $MATRIX"
+        echo "Has changes: $HAS_CHANGES"
 
     - name: 🏷️ Generate Metadata
       id: meta
