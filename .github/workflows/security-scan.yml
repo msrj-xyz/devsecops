@@ -195,9 +195,9 @@ jobs:
       with:
         sarif_file: tfsec-results.sarif
 
-    # License Compliance
+    # License Compliance (Optional - requires FOSSA_API_KEY secret)
     - name: 📜 FOSSA License Scan
-      if: ${{ secrets.FOSSA_API_KEY != '' }}
+      if: false  # Disabled - uncomment and add FOSSA_API_KEY secret if needed
       uses: fossas/fossa-action@main
       with:
         api-key: ${{ secrets.FOSSA_API_KEY }}
