@@ -1,0 +1,307 @@
+name: 🚀 Google Cloud CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}
+  ARTIFACT_REGISTRY_LOCATION: us-central1
+  ARTIFACT_REGISTRY_REPOSITORY: devsecops-repo
+  GKE_CLUSTER: devsecops-cluster  
+  GKE_ZONE: us-central1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ================================================
+  # STAGE 1: PRE-BUILD VALIDATION
+  # ================================================
+  pre-build:
+    name: 🔍 Pre-build Validation
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.image-tag }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🏷️ Generate Metadata
+      id: meta
+      run: |
+        echo "image-tag=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+  # ================================================
+  # STAGE 2: SECURITY SCANNING
+  # ================================================
+  security-scan:
+    name: 🛡️ Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Secret Scanning
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+    - name: 🔍 CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript, typescript
+
+    - name: 🏗️ Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    - name: 📊 Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+    - name: 🔍 Dependency Scanning
+      uses: snyk/actions/setup@master
+      
+    - name: 🔍 Snyk Test
+      run: snyk test --severity-threshold=high
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # ================================================
+  # STAGE 3: BUILD AND TEST
+  # ================================================
+  build-and-test:
+    name: 🏗️ Build & Test
+    runs-on: ubuntu-latest
+    needs: [pre-build, security-scan]
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🏗️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 📦 Install Dependencies
+      run: npm ci
+
+    - name: 🧹 Lint Code
+      run: npm run lint
+
+    - name: 🧪 Run Tests
+      run: npm run test
+
+    - name: 📊 Upload Coverage
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ================================================
+  # STAGE 4: DOCKER BUILD & SCAN
+  # ================================================
+  docker-build:
+    name: 🐳 Docker Build & Scan
+    runs-on: ubuntu-latest
+    needs: [pre-build, build-and-test]
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    - name: 🏗️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🐳 Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev
+
+    - name: 🏗️ Build Docker Image
+      run: |
+        docker build \
+          --tag ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPOSITORY }}/app:${{ needs.pre-build.outputs.image-tag }} \
+          --tag ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPOSITORY }}/app:latest \
+          --build-arg BUILD_DATE="${{ needs.pre-build.outputs.build-date }}" \
+          --build-arg VCS_REF="${{ github.sha }}" \
+          .
+
+    - name: 🔍 Scan Docker Image with Trivy
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPOSITORY }}/app:${{ needs.pre-build.outputs.image-tag }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: 📤 Upload Trivy Results
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: 🚀 Push Docker Image
+      run: |
+        docker push ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPOSITORY }}/app:${{ needs.pre-build.outputs.image-tag }}
+        docker push ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPOSITORY }}/app:latest
+
+  # ================================================
+  # STAGE 5: DEPLOY TO STAGING
+  # ================================================
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [pre-build, docker-build]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    environment: 
+      name: staging
+      url: https://staging.devsecops.example.com
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    - name: 🏗️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🔧 Get GKE Credentials
+      run: |
+        gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} --zone ${{ env.GKE_ZONE }}
+
+    - name: 🚀 Deploy to GKE Staging
+      run: |
+        # Update image in Kubernetes manifests
+        sed -i "s|IMAGE_TAG|${{ needs.pre-build.outputs.image-tag }}|g" k8s/staging/*.yaml
+        sed -i "s|PROJECT_ID|${{ env.GCP_PROJECT_ID }}|g" k8s/staging/*.yaml
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/staging/
+        
+        # Wait for deployment
+        kubectl rollout status deployment/app-deployment -n staging --timeout=300s
+
+    - name: 🧪 Run Smoke Tests
+      run: |
+        # Wait for service to be ready
+        sleep 30
+        
+        # Get external IP
+        EXTERNAL_IP=$(kubectl get service app-service -n staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Run health check
+        curl -f http://$EXTERNAL_IP/health || exit 1
+
+  # ================================================
+  # STAGE 6: PRODUCTION DEPLOYMENT
+  # ================================================
+  deploy-production:
+    name: 🌟 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [pre-build, deploy-staging]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment:
+      name: production
+      url: https://devsecops.example.com
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+    - name: 🏗️ Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: 🔧 Get GKE Credentials
+      run: |
+        gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} --zone ${{ env.GKE_ZONE }}
+
+    - name: 🚀 Blue-Green Deployment
+      run: |
+        # Update image in production manifests
+        sed -i "s|IMAGE_TAG|${{ needs.pre-build.outputs.image-tag }}|g" k8s/production/*.yaml
+        sed -i "s|PROJECT_ID|${{ env.GCP_PROJECT_ID }}|g" k8s/production/*.yaml
+        
+        # Deploy to green environment
+        kubectl apply -f k8s/production/green/
+        
+        # Wait for green deployment
+        kubectl rollout status deployment/app-deployment-green -n production --timeout=600s
+        
+        # Run production tests
+        EXTERNAL_IP=$(kubectl get service app-service-green -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        curl -f http://$EXTERNAL_IP/health || exit 1
+        
+        # Switch traffic to green
+        kubectl patch service app-service -n production -p '{"spec":{"selector":{"version":"green"}}}'
+        
+        # Scale down blue
+        kubectl scale deployment app-deployment-blue -n production --replicas=0
+
+    - name: 🏷️ Create Release Tag
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        TAG="v$(date +%Y.%m.%d)-${{ github.run_number }}"
+        git tag -a $TAG -m "Production release $TAG"
+        git push origin $TAG
+
+  # ================================================
+  # STAGE 7: POST-DEPLOYMENT MONITORING
+  # ================================================
+  post-deployment:
+    name: 📊 Post-Deployment Tasks
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+    
+    steps:
+    - name: 🔔 Slack Notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ needs.deploy-production.result == 'success' && 'success' || 'failure' }}
+        text: |
+          🚀 Deployment to Google Cloud completed!
+          
+          **Status:** ${{ needs.deploy-production.result == 'success' && '✅ Success' || '❌ Failed' }}
+          **Environment:** Production
+          **Commit:** ${{ github.sha }}
+          **Actor:** ${{ github.actor }}
+          **URL:** https://devsecops.example.com
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
