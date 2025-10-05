@@ -11,9 +11,9 @@ queries:
 
 # Path filters - focus on application code
 paths:
-  - projects/
+  - projects/frontend/react-app/
+  - projects/backend/nodejs-api/
   - src/
-  - app/
   - lib/
 
 # Ignore paths that don't need analysis  
