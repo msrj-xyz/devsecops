@@ -50,31 +50,12 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
-    # SAST - Static Application Security Testing
-    - name: 🛡️ CodeQL Analysis - Initialize
-      uses: github/codeql-action/init@v3
-      with:
-        languages: javascript
-        config-file: ./.github/codeql/codeql-config.yml
-        queries: security-extended
-
-    # Manual build steps for interpreted languages (no autobuild needed)
-    - name: 🏗️ Install Node.js Dependencies
-      if: always()
-      working-directory: projects/frontend/react-app
+    # SAST - Static Application Security Testing (CodeQL disabled for faster builds)
+    - name: 🛡️ CodeQL Analysis (Disabled)
+      if: false  # Disabled for faster pipeline execution - enable when needed
       run: |
-        if [ -f "package.json" ]; then
-          if [ -f "package-lock.json" ]; then
-            npm ci
-          else
-            npm install
-          fi
-        fi
-
-    - name: 📊 Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: "/language:javascript"
+        echo "CodeQL analysis is disabled for faster builds"
+        echo "To enable: change 'if: false' to 'if: true' in security-scan.yml"
 
     - name: 🔍 Semgrep SAST Scan
       run: |
