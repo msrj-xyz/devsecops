@@ -2,9 +2,9 @@ name: 🚀 Google Cloud CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ master, staging, development ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ master, staging ]
   workflow_dispatch:
     inputs:
       environment:
@@ -13,6 +13,7 @@ on:
         default: 'staging'
         type: choice
         options:
+        - development
         - staging
         - production
 
@@ -29,6 +30,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ================================================
+  # ENVIRONMENT DETERMINATION
+  # ================================================
+  determine-environment:
+    name: 🎯 Determine Target Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env-mapping.outputs.environment }}
+      deploy-to-env: ${{ steps.env-mapping.outputs.deploy-to-env }}
+    
+    steps:
+    - name: 🎯 Map Branch to Environment
+      id: env-mapping
+      run: |
+        case "${{ github.ref_name }}" in
+          "master")
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+            echo "🚀 Branch: master → Environment: production"
+            ;;
+          "staging")
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+            echo "🔄 Branch: staging → Environment: staging"
+            ;;
+          "development")
+            echo "environment=development" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+            echo "🧪 Branch: development → Environment: development"
+            ;;
+          *)
+            echo "environment=development" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=false" >> $GITHUB_OUTPUT
+            echo "🔀 Branch: ${{ github.ref_name }} → Environment: development (no deployment)"
+            ;;
+        esac
+        
+        # Override with manual input if workflow_dispatch
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.environment }}" ]]; then
+          echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+          echo "👤 Manual override → Environment: ${{ inputs.environment }}"
+        fi
+
   # ================================================
   # STAGE 1: PRE-BUILD VALIDATION
   # ================================================
@@ -172,16 +217,16 @@ jobs:
         docker push ${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPOSITORY }}/app:latest
 
   # ================================================
-  # STAGE 5: DEPLOY TO STAGING
+  # STAGE 5: ENVIRONMENT-BASED DEPLOYMENT
   # ================================================
-  deploy-staging:
-    name: 🚀 Deploy to Staging
+  deploy:
+    name: 🚀 Deploy to ${{ needs.determine-environment.outputs.environment }}
     runs-on: ubuntu-latest
-    needs: [pre-build, docker-build]
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    needs: [determine-environment, pre-build, docker-build]
+    if: needs.determine-environment.outputs.deploy-to-env == 'true'
     environment: 
-      name: staging
-      url: https://staging.devsecops.example.com
+      name: ${{ needs.determine-environment.outputs.environment }}
+      url: ${{ needs.determine-environment.outputs.environment == 'production' && 'https://devsecops.example.com' || needs.determine-environment.outputs.environment == 'staging' && 'https://staging.devsecops.example.com' || 'https://dev.devsecops.example.com' }}
       
     steps:
     - name: 📥 Checkout Code
@@ -199,7 +244,7 @@ jobs:
       run: |
         gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} --zone ${{ env.GKE_ZONE }}
 
-    - name: 🚀 Deploy to GKE Staging
+    - name: 🚀 Deploy to GKE ${{ needs.determine-environment.outputs.environment }}
       run: |
         # Update image in Kubernetes manifests
         sed -i "s|IMAGE_TAG|${{ needs.pre-build.outputs.image-tag }}|g" k8s/staging/*.yaml
@@ -209,7 +254,7 @@ jobs:
         kubectl apply -f k8s/staging/
         
         # Wait for deployment
-        kubectl rollout status deployment/app-deployment -n staging --timeout=300s
+        kubectl rollout status deployment/app-deployment -n ${{ needs.determine-environment.outputs.environment }} --timeout=300s
 
     - name: 🧪 Run Smoke Tests
       run: |
@@ -223,56 +268,17 @@ jobs:
         curl -f http://$EXTERNAL_IP/health || exit 1
 
   # ================================================
-  # STAGE 6: PRODUCTION DEPLOYMENT
+  # STAGE 6: POST-DEPLOYMENT MONITORING
   # ================================================
-  deploy-production:
-    name: 🌟 Deploy to Production
+  post-deployment:
+    name: 📊 Post-Deployment Tasks
     runs-on: ubuntu-latest
-    needs: [pre-build, deploy-staging]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    environment:
-      name: production
-      url: https://devsecops.example.com
-      
+    needs: [determine-environment, deploy]
+    if: always() && needs.deploy.result != 'cancelled'
+    
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-
-    - name: 🔑 Authenticate to Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-    - name: 🏗️ Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-
-    - name: 🔧 Get GKE Credentials
-      run: |
-        gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} --zone ${{ env.GKE_ZONE }}
-
-    - name: 🚀 Blue-Green Deployment
-      run: |
-        # Update image in production manifests
-        sed -i "s|IMAGE_TAG|${{ needs.pre-build.outputs.image-tag }}|g" k8s/production/*.yaml
-        sed -i "s|PROJECT_ID|${{ env.GCP_PROJECT_ID }}|g" k8s/production/*.yaml
-        
-        # Deploy to green environment
-        kubectl apply -f k8s/production/green/
-        
-        # Wait for green deployment
-        kubectl rollout status deployment/app-deployment-green -n production --timeout=600s
-        
-        # Run production tests
-        EXTERNAL_IP=$(kubectl get service app-service-green -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        curl -f http://$EXTERNAL_IP/health || exit 1
-        
-        # Switch traffic to green
-        kubectl patch service app-service -n production -p '{"spec":{"selector":{"version":"green"}}}'
-        
-        # Scale down blue
-        kubectl scale deployment app-deployment-blue -n production --replicas=0
-
-    - name: 🏷️ Create Release Tag
+    - name: �️ Create Release Tag
+      if: needs.determine-environment.outputs.environment == 'production' && needs.deploy.result == 'success'
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -280,28 +286,19 @@ jobs:
         TAG="v$(date +%Y.%m.%d)-${{ github.run_number }}"
         git tag -a $TAG -m "Production release $TAG"
         git push origin $TAG
-
-  # ================================================
-  # STAGE 7: POST-DEPLOYMENT MONITORING
-  # ================================================
-  post-deployment:
-    name: 📊 Post-Deployment Tasks
-    runs-on: ubuntu-latest
-    needs: [deploy-production]
-    if: always()
     
-    steps:
     - name: 🔔 Slack Notification
       uses: 8398a7/action-slack@v3
       with:
-        status: ${{ needs.deploy-production.result == 'success' && 'success' || 'failure' }}
+        status: ${{ needs.deploy.result == 'success' && 'success' || 'failure' }}
         text: |
           🚀 Deployment to Google Cloud completed!
           
-          **Status:** ${{ needs.deploy-production.result == 'success' && '✅ Success' || '❌ Failed' }}
-          **Environment:** Production
+          **Status:** ${{ needs.deploy.result == 'success' && '✅ Success' || '❌ Failed' }}
+          **Environment:** ${{ needs.determine-environment.outputs.environment }}
+          **Branch:** ${{ github.ref_name }}
           **Commit:** ${{ github.sha }}
           **Actor:** ${{ github.actor }}
-          **URL:** https://devsecops.example.com
+          **URL:** ${{ needs.determine-environment.outputs.environment == 'production' && 'https://devsecops.example.com' || needs.determine-environment.outputs.environment == 'staging' && 'https://staging.devsecops.example.com' || 'https://dev.devsecops.example.com' }}
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

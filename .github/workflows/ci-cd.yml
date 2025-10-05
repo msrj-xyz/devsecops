@@ -2,9 +2,9 @@ name: 🚀 CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ master, staging, development ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ master, staging ]
   workflow_dispatch:
     inputs:
       environment:
@@ -13,6 +13,7 @@ on:
         default: 'staging'
         type: choice
         options:
+        - development
         - staging
         - production
       skip_tests:
@@ -34,6 +35,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ================================================
+  # ENVIRONMENT DETERMINATION
+  # ================================================
+  determine-environment:
+    name: 🎯 Determine Target Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env-mapping.outputs.environment }}
+      deploy-to-env: ${{ steps.env-mapping.outputs.deploy-to-env }}
+    
+    steps:
+    - name: 🎯 Map Branch to Environment
+      id: env-mapping
+      run: |
+        case "${{ github.ref_name }}" in
+          "master")
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+            echo "🚀 Branch: master → Environment: production"
+            ;;
+          "staging")
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+            echo "🔄 Branch: staging → Environment: staging"
+            ;;
+          "development")
+            echo "environment=development" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+            echo "🧪 Branch: development → Environment: development"
+            ;;
+          *)
+            echo "environment=development" >> $GITHUB_OUTPUT
+            echo "deploy-to-env=false" >> $GITHUB_OUTPUT
+            echo "🔀 Branch: ${{ github.ref_name }} → Environment: development (no deployment)"
+            ;;
+        esac
+        
+        # Override with manual input if workflow_dispatch
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.environment }}" ]]; then
+          echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          echo "deploy-to-env=true" >> $GITHUB_OUTPUT
+          echo "👤 Manual override → Environment: ${{ inputs.environment }}"
+        fi
   # ================================================
   # STAGE 1: PRE-BUILD VALIDATION
   # ================================================
@@ -324,20 +368,21 @@ jobs:
         echo "✅ All security policies satisfied"
 
   # ================================================
-  # STAGE 4: DEPLOY TO STAGING
+  # STAGE 4: ENVIRONMENT-BASED DEPLOYMENT
   # ================================================
-  deploy-staging:
-    name: 🚀 Deploy to Staging
-    needs: [pre-build, build-and-test, security-gate]
+  deploy:
+    name: 🚀 Deploy Application
+    needs: [determine-environment, pre-build, build-and-test, security-gate]
     if: |
       always() && 
+      needs.determine-environment.outputs.deploy-to-env == 'true' &&
       needs.build-and-test.result == 'success' && 
       needs.security-gate.result == 'success' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
+      !cancelled()
     runs-on: ubuntu-latest
     environment: 
-      name: staging
-      url: https://staging.devsecops.demo
+      name: ${{ needs.determine-environment.outputs.environment }}
+      url: ${{ needs.determine-environment.outputs.environment == 'production' && 'https://devsecops.demo' || needs.determine-environment.outputs.environment == 'staging' && 'https://staging.devsecops.demo' || 'https://dev.devsecops.demo' }}
     
     steps:
     - name: 📥 Checkout Code
@@ -411,10 +456,11 @@ jobs:
   # ================================================
   production-gate:
     name: 🔒 Production Gate
-    needs: deploy-staging
+    needs: [determine-environment, deploy]
     if: |
-      needs.deploy-staging.result == 'success' && 
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      needs.deploy.result == 'success' && 
+      needs.determine-environment.outputs.environment == 'production' &&
+      github.ref == 'refs/heads/master' &&
       github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
@@ -428,12 +474,14 @@ jobs:
         echo "🚀 Ready for production deployment"
 
   # ================================================
-  # STAGE 6: DEPLOY TO PRODUCTION  
+  # STAGE 6: PRODUCTION BLUE-GREEN DEPLOYMENT  
   # ================================================
   deploy-production:
-    name: 🌟 Deploy to Production
-    needs: [deploy-staging, production-gate]
-    if: needs.production-gate.result == 'success'
+    name: 🌟 Deploy to Production (Blue-Green)
+    needs: [determine-environment, deploy, production-gate]
+    if: |
+      needs.production-gate.result == 'success' &&
+      needs.determine-environment.outputs.environment == 'production'
     runs-on: ubuntu-latest
     environment:
       name: production
