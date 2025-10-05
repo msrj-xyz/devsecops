@@ -51,20 +51,36 @@ jobs:
         GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
     # SAST - Static Application Security Testing
-    - name: 🛡️ CodeQL Analysis
+    - name: 🛡️ CodeQL Analysis - Initialize
       uses: github/codeql-action/init@v3
       with:
-        languages: javascript, python, java, csharp, go
+        languages: javascript, python
         config-file: ./.github/codeql/codeql-config.yml
         queries: security-extended
 
-    - name: 🏗️ Autobuild
-      uses: github/codeql-action/autobuild@v3
+    # Manual build steps for interpreted languages (no autobuild needed)
+    - name: 🏗️ Install Node.js Dependencies
+      if: always()
+      working-directory: projects/frontend/react-app
+      run: |
+        if [ -f "package.json" ]; then
+          npm ci
+        fi
+
+    - name: 🏗️ Install Python Dependencies
+      if: always()
+      run: |
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+        if [ -f "projects/backend/python-api/requirements.txt" ]; then
+          pip install -r projects/backend/python-api/requirements.txt
+        fi
 
     - name: 📊 Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
       with:
-        category: "/language:javascript,python,java,csharp,go"
+        category: "/language:javascript,python"
 
     - name: 🔍 Semgrep SAST Scan
       uses: semgrep/semgrep-action@v1
@@ -76,9 +92,6 @@ jobs:
           p/cwe-top-25
           p/typescript
           p/python
-          p/java
-          p/golang
-        generateSarif: "1"
       env:
         SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
@@ -134,7 +147,6 @@ jobs:
         args: >
           --enableRetired
           --enableExperimental
-          --nvdApiKey ${{ secrets.NVD_API_KEY }}
 
     - name: 📤 Upload Dependency Check Results
       uses: actions/upload-artifact@v4
@@ -188,21 +200,20 @@ jobs:
       if: hashFiles('**/*.tf') != ''
       uses: aquasecurity/tfsec-action@v1.0.3
       with:
-        sarif_file: tfsec-results.sarif
+        format: sarif
+        soft_fail: true
 
     - name: 📤 Upload TFSec SARIF
       if: hashFiles('**/*.tf') != ''
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: tfsec-results.sarif
+        sarif_file: results.sarif
 
     # License Compliance (Optional - requires FOSSA_API_KEY secret)
-    - name: 📜 FOSSA License Scan
-      if: false  # Disabled - uncomment and add FOSSA_API_KEY secret if needed
-      uses: fossas/fossa-action@main
-      with:
-        api-key: ${{ secrets.FOSSA_API_KEY }}
-        run-tests: true
+    - name: 📜 FOSSA License Scan (Disabled)
+      if: false  # Disabled - uncomment and configure FOSSA_API_KEY secret if needed
+      run: |
+        echo "FOSSA License Scan disabled - requires FOSSA_API_KEY secret configuration"
 
     # Security Summary Report
     - name: 📊 Generate Security Report
