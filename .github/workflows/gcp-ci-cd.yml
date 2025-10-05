@@ -301,4 +301,4 @@ jobs:
           **Actor:** ${{ github.actor }}
           **URL:** ${{ needs.determine-environment.outputs.environment == 'production' && 'https://devsecops.example.com' || needs.determine-environment.outputs.environment == 'staging' && 'https://staging.devsecops.example.com' || 'https://dev.devsecops.example.com' }}
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

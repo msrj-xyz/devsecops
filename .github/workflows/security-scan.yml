@@ -79,7 +79,7 @@ jobs:
           p/golang
         generateSarif: "1"
       env:
-        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
     - name: 📈 Upload Semgrep SARIF
       uses: github/codeql-action/upload-sarif@v3
@@ -243,4 +243,4 @@ jobs:
         status: failure
         text: '🚨 Security scan failed for ${{ github.repository }}. Please check the results immediately.'
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

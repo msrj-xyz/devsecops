@@ -289,6 +289,30 @@ jobs:
           ${{ matrix.path }}/coverage.html
           ${{ matrix.path }}/target/site/jacoco/
 
+    # Upload Coverage to Codecov
+    - name: 📊 Upload Coverage to Codecov
+      if: always() && !inputs.skip_tests && env.CODECOV_TOKEN != ''
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        directory: ${{ matrix.path }}
+        flags: ${{ matrix.project }}
+        name: ${{ matrix.project }}-coverage
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    # SonarQube Analysis
+    - name: 🔍 SonarQube Analysis
+      if: matrix.runtime == 'nodejs' && env.SONAR_TOKEN != ''
+      uses: sonarqube-quality-gate-action@master
+      with:
+        scanMetadataReportFile: ${{ matrix.path }}/target/sonar/report-task.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: https://sonarcloud.io
+
     # Build Application
     - name: 🏗️ Build Application
       working-directory: ${{ matrix.path }}
@@ -308,29 +332,53 @@ jobs:
             ;;
         esac
 
+    # Docker Hub Login
+    - name: 🔐 Login to Docker Hub
+      if: hashFiles(format('{0}/Dockerfile', matrix.path)) != '' && env.DOCKER_USERNAME != ''
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PAT }}
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
     # Build Docker Image
     - name: 🐳 Build Docker Image
       if: hashFiles(format('{0}/Dockerfile', matrix.path)) != ''
       working-directory: ${{ matrix.path }}
       run: |
         docker build \
-          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.project }}:${{ github.sha }} \
-          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.project }}:latest \
-          --build-arg BUILD_DATE="${{ needs.pre-build.outputs.build-date }}" \
+          --tag ${{ env.DOCKER_USERNAME }}/${{ matrix.project }}:${{ github.sha }} \
+          --tag ${{ env.DOCKER_USERNAME }}/${{ matrix.project }}:latest \
+          --build-arg BUILD_DATE="${{ github.run_id }}" \
           --build-arg VCS_REF="${{ github.sha }}" \
-          --build-arg VERSION="${{ needs.pre-build.outputs.version }}" \
+          --build-arg VERSION="1.0.0" \
           .
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+    # Push Docker Image
+    - name: 🚀 Push Docker Image
+      if: hashFiles(format('{0}/Dockerfile', matrix.path)) != '' && env.DOCKER_USERNAME != ''
+      working-directory: ${{ matrix.path }}
+      run: |
+        docker push ${{ env.DOCKER_USERNAME }}/${{ matrix.project }}:${{ github.sha }}
+        docker push ${{ env.DOCKER_USERNAME }}/${{ matrix.project }}:latest
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
     # Container Security Scan
     - name: 🔍 Scan Container Image
       if: hashFiles(format('{0}/Dockerfile', matrix.path)) != ''
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.project }}:${{ github.sha }}
+        image-ref: ${{ env.DOCKER_USERNAME }}/${{ matrix.project }}:${{ github.sha }}
         format: 'table'
         exit-code: '1'
         ignore-unfixed: true
         severity: 'CRITICAL,HIGH'
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
     # Upload Build Artifacts
     - name: 📤 Upload Build Artifacts
@@ -583,4 +631,4 @@ jobs:
           **Commit:** ${{ github.sha }}
           **Actor:** ${{ github.actor }}
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
