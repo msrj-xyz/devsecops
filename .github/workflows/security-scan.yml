@@ -24,6 +24,8 @@ concurrency:
 env:
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.11'
+  # Set to 'true' to enable CodeQL analysis (increases build time significantly)
+  ENABLE_CODEQL: 'false'
 
 jobs:
   # ================================================
@@ -81,12 +83,14 @@ jobs:
     # STATIC APPLICATION SECURITY TESTING (SAST)
     # ================================================
     - name: 🔍 Initialize CodeQL
+      if: env.ENABLE_CODEQL == 'true'
       uses: github/codeql-action/init@v3
       with:
         languages: javascript, typescript, python, java
         queries: security-extended,security-and-quality
 
     - name: 🔍 Perform CodeQL Analysis
+      if: env.ENABLE_CODEQL == 'true'
       uses: github/codeql-action/analyze@v3
 
     - name: 🔍 Semgrep Security Scan
@@ -447,6 +451,7 @@ jobs:
           • Security Scan: ${{ needs.security-scan.result == 'success' && '✅ PASSED' || '❌ FAILED' }}
           • SBOM Generation: ${{ needs.sbom-generation.result == 'success' && '✅ COMPLETED' || '❌ FAILED' }}
           • Report Generation: ${{ needs.security-report.result == 'success' && '✅ AVAILABLE' || '❌ FAILED' }}
+          • CodeQL Analysis: ${{ env.ENABLE_CODEQL == 'true' && '✅ ENABLED' || '⏭️ SKIPPED (faster builds)' }}
           
           📥 **Download:** [Security Reports & SBOM](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
       env:

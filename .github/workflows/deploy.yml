@@ -19,6 +19,11 @@ on:
         required: false
         default: false
         type: boolean
+      auto-destroy:
+        description: 'Enable auto-destroy after 5 minutes (non-production only)'
+        required: false
+        default: true
+        type: boolean
 
 # Prevent concurrent deployments to the same environment
 concurrency:
@@ -488,5 +493,156 @@ jobs:
           • Security Gate: ${{ needs.security-gate.result == 'success' && '✅' || needs.security-gate.result == 'skipped' && '⏭️' || '❌' }}
           • Build & Push: ${{ needs.build-and-push.result == 'success' && '✅' || '❌' }}
           • Deployment: ${{ needs.deploy.result == 'success' && '✅' || '❌' }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  # ================================================
+  # AUTO-DESTROY AFTER 5 MINUTES
+  # ================================================
+  auto-destroy:
+    name: 🗑️ Auto-Destroy Resources
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy]
+    if: always() && needs.deploy.result == 'success' && needs.determine-environment.outputs.environment != 'production' && (github.event.inputs.auto-destroy == 'true' || github.event.inputs.auto-destroy == null)
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+    - name: ⏱️ Wait 5 Minutes
+      run: |
+        echo "🕐 Starting 5-minute countdown before resource cleanup..."
+        echo "⚠️  Resources will be destroyed automatically to save costs"
+        echo "🚫 To prevent destruction, cancel this workflow within 5 minutes"
+        
+        for i in {300..1}; do
+          mins=$((i / 60))
+          secs=$((i % 60))
+          printf "\r⏳ Destroying in: %02d:%02d" "$mins" "$secs"
+          sleep 1
+        done
+        
+        echo ""
+        echo "🗑️ Time's up! Proceeding with resource cleanup..."
+
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: ☸️ Setup GKE kubectl
+      uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ env.GKE_CLUSTER }}
+        location: ${{ env.GCP_REGION }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: 🗑️ Destroy Kubernetes Resources
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "🧹 Cleaning up resources in namespace: $ENV"
+        
+        # Delete all deployments in the namespace
+        echo "🗑️ Deleting deployments..."
+        kubectl delete deployments --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all services in the namespace
+        echo "🗑️ Deleting services..."
+        kubectl delete services --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all ingresses in the namespace
+        echo "🗑️ Deleting ingresses..."
+        kubectl delete ingresses --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all configmaps (except system ones)
+        echo "🗑️ Deleting configmaps..."
+        kubectl delete configmaps --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all secrets (except system ones)
+        echo "🗑️ Deleting secrets..."
+        kubectl delete secrets --field-selector type!=kubernetes.io/service-account-token -n "$ENV" --ignore-not-found=true
+        
+        echo "✅ Kubernetes resources cleanup completed"
+
+    - name: 🐳 Clean Docker Images
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "🧹 Cleaning up container images for environment: $ENV"
+        
+        # List and delete images for this environment
+        IMAGES=$(gcloud artifacts docker images list \
+          ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }} \
+          --filter="tags:$ENV" \
+          --format="value(IMAGE)" \
+          --limit=50 2>/dev/null || true)
+        
+        if [ ! -z "$IMAGES" ]; then
+          echo "🗑️ Deleting container images:"
+          echo "$IMAGES"
+          echo "$IMAGES" | xargs -I {} gcloud artifacts docker images delete {} --delete-tags --quiet || true
+          echo "✅ Container images cleanup completed"
+        else
+          echo "ℹ️ No container images found for environment: $ENV"
+        fi
+
+    - name: 📊 Cleanup Summary
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "📋 Auto-Destroy Summary:"
+        echo "=============================="
+        echo "🎯 Environment: $ENV"
+        echo "⏰ Destruction Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "👤 Triggered by: ${{ github.actor }}"
+        echo "🔗 Workflow: ${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo ""
+        echo "✅ Resources Successfully Destroyed:"
+        echo "  • Kubernetes Deployments"
+        echo "  • Kubernetes Services"
+        echo "  • Kubernetes Ingresses"
+        echo "  • Kubernetes ConfigMaps"
+        echo "  • Kubernetes Secrets"
+        echo "  • Container Images (tagged: $ENV)"
+        echo ""
+        echo "💰 Cost Savings: Resources automatically cleaned up after 5 minutes"
+        echo "🔄 Next Deployment: Will recreate all resources from scratch"
+
+  # ================================================
+  # NOTIFY AUTO-DESTROY
+  # ================================================
+  notify-destroy:
+    name: 📢 Notify Auto-Destroy
+    runs-on: ubuntu-latest
+    needs: [determine-environment, auto-destroy]
+    if: always() && needs.auto-destroy.result != 'skipped'
+    
+    steps:
+    - name: 📢 Notify Slack - Auto-Destroy
+      continue-on-error: true
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ needs.auto-destroy.result == 'success' && 'success' || 'failure' }}
+        channel: '#devops'
+        username: 'GitHub Actions'
+        icon_emoji: ':boom:'
+        fields: |
+          {
+            "title": "${{ needs.auto-destroy.result == 'success' && '🗑️ Auto-Destroy Completed' || '❌ Auto-Destroy Failed' }}",
+            "value": "Environment: ${{ needs.determine-environment.outputs.environment }}\nStatus: ${{ needs.auto-destroy.result == 'success' && '✅ Resources Destroyed' || '❌ Cleanup Failed' }}",
+            "short": false
+          }
+        text: |
+          **Repository:** ${{ github.repository }}
+          **Branch:** ${{ github.ref_name }}
+          **Environment:** ${{ needs.determine-environment.outputs.environment }}
+          **Status:** ${{ needs.auto-destroy.result == 'success' && '✅ Resources Destroyed' || '❌ Cleanup Failed' }}
+          **Triggered by:** ${{ github.actor }}
+          **Duration:** 5 minutes post-deployment
+          
+          ${{ needs.auto-destroy.result == 'success' && '💰 **Cost Savings:** All cloud resources have been automatically cleaned up' || '⚠️ **Action Required:** Manual cleanup may be needed' }}
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

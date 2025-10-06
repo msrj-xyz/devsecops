@@ -26,6 +26,7 @@ Welcome to the comprehensive documentation center for the DevSecOps Portfolio. T
 |----------|-------------|----------|
 | [**🔒 Security Policy**](./SECURITY_POLICY.md) | Comprehensive security policies and procedures | Security Teams, Compliance Officers |
 | [**🛡️ Best Practices Guide**](./BEST_PRACTICES.md) | DevSecOps best practices and implementation guidelines | Developers, DevOps Engineers |
+| [**🗑️ Auto-Destroy Guide**](./AUTO_DESTROY_GUIDE.md) | Automatic resource cleanup for cost optimization | DevOps Engineers, Cost Management |
 
 ### 👥 **Collaboration & Contribution**
 | Document | Description | Audience |
@@ -37,6 +38,7 @@ Welcome to the comprehensive documentation center for the DevSecOps Portfolio. T
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [**📊 Workflow Analysis**](./WORKFLOW_ANALYSIS.md) | Implementation analysis and feedback (Score: 9.2/10) | Technical Teams, Project Managers |
+| [**⚡ CodeQL Optimization**](./CODEQL_OPTIMIZATION.md) | CodeQL analysis optimization for faster builds | DevOps Engineers, Developers |
 
 ---
 
