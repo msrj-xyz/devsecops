@@ -24,8 +24,8 @@ env:
   ENABLE_SEMGREP: 'false'      # SAST ✅ TESTED & PASSED (fixed config)
   ENABLE_SNYK: 'false'         # SCA (need token)
   ENABLE_OWASP: 'false'        # Dependency check ✅ TESTED & PASSED
-  ENABLE_TRIVY: 'true'         # Container security ← CURRENTLY TESTING
-  ENABLE_CHECKOV: 'false'      # IaC security (terraform not ready)
+  ENABLE_TRIVY: 'false'        # Container security ✅ TESTED & PASSED
+  ENABLE_CHECKOV: 'true'       # IaC security ← CURRENTLY TESTING
 
 jobs:
   # ================================================
