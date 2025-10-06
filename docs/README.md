@@ -40,6 +40,7 @@ Welcome to the comprehensive documentation center for the DevSecOps Portfolio. T
 |----------|-------------|----------|
 | [**📊 Workflow Analysis**](./WORKFLOW_ANALYSIS.md) | Implementation analysis and feedback (Score: 9.2/10) | Technical Teams, Project Managers |
 | [**⚡ CodeQL Optimization**](./CODEQL_OPTIMIZATION.md) | CodeQL analysis optimization for faster builds | DevOps Engineers, Developers |
+| [**🔧 SBOM Fix Notes**](./SBOM_FIX_NOTES.md) | SBOM generation compatibility issue resolution | DevOps Engineers, Technical Teams |
 
 ---
 

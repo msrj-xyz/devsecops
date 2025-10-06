@@ -1,0 +1,213 @@
+﻿name: ðŸ›¡ï¸ Security Scan & SBOM Generation
+
+on:
+  push:
+    branches: [ development, staging, feature/* ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
+  pull_request:
+    branches: [ master, development, staging ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
+
+# Prevent concurrent runs for the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  # Set to 'true' to enable CodeQL analysis (increases build time significantly)
+  ENABLE_CODEQL: 'false'
+
+jobs:
+  # ================================================
+  # SECURITY SCANNING
+  # ================================================
+  security-scan:
+    name: ðŸ›¡ï¸ Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: ðŸ“¥ Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: ðŸŸ¨ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: ðŸ Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: ðŸ“¦ Install Dependencies
+      run: |
+        # Install Node.js dependencies
+        if [ -f "package.json" ]; then
+          npm ci
+        fi
+        
+        # Install Python dependencies
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+
+    # ================================================
+    # SECRETS DETECTION
+    # ================================================
+    - name: ðŸ” TruffleHog Secret Scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --debug --only-verified
+
+    - name: ðŸ” GitLeaks Secret Scan
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # ================================================
+    # STATIC APPLICATION SECURITY TESTING (SAST)
+    # ================================================
+    - name: ðŸ” Initialize CodeQL
+      if: env.ENABLE_CODEQL == 'true'
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript, typescript, python, java
+        queries: security-extended,security-and-quality
+
+    - name: ðŸ” Perform CodeQL Analysis
+      if: env.ENABLE_CODEQL == 'true'
+      uses: github/codeql-action/analyze@v3
+
+    - name: ðŸ” Semgrep Security Scan
+      continue-on-error: true
+      uses: semgrep/semgrep-action@v1
+      with:
+        config: >-
+          p/security-audit
+          p/secrets
+          p/owasp-top-ten
+          p/javascript
+          p/typescript
+          p/python
+          p/java
+          p/docker
+          p/kubernetes
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+
+    # ================================================
+    # SOFTWARE COMPOSITION ANALYSIS (SCA)
+    # ================================================
+    - name: ðŸ” Snyk Security Scan
+      continue-on-error: true
+      uses: snyk/actions/setup@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+    - name: ðŸ” Snyk Code Analysis
+      continue-on-error: true
+      run: |
+        # Test for vulnerabilities in source code
+        snyk code test --sarif > snyk-code.sarif || true
+        
+        # Test for vulnerabilities in dependencies  
+        snyk test --severity-threshold=medium --json > snyk-deps.json || true
+        
+        # Upload results
+        if [ -f "snyk-code.sarif" ]; then
+          echo "ðŸ“„ Snyk Code SARIF results generated"
+        fi
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+    - name: ðŸ” OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'devsecops-portfolio'
+        path: '.'
+        format: 'ALL'
+        args: >
+          --enableRetired
+          --enableExperimental
+          --failOnCVSS 7
+
+    - name: ðŸ” Python Safety Check
+      if: hashFiles('requirements.txt') != ''
+      run: |
+        pip install safety
+        safety check --json --output safety-report.json || true
+        safety check --short-report || true
+
+    # ================================================
+    # CONTAINER SECURITY
+    # ================================================
+    - name: ðŸ” Docker Image Security Scan
+      if: hashFiles('**/Dockerfile') != ''
+      run: |
+        # Install Trivy
+        sudo apt-get update
+        sudo apt-get install wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install trivy
+        
+        # Scan Dockerfiles for misconfigurations
+        find . -name "Dockerfile*" -exec trivy config --format json --output trivy-config.json {} \;
+        
+        # Build and scan images
+        for dockerfile in $(find . -name "Dockerfile*"); do
+          dir=$(dirname "$dockerfile")
+          image_name="security-scan:$(basename $dir)"
+          
+          echo "ðŸ—ï¸ Building image: $image_name"
+          docker build -t "$image_name" "$dir" || continue
+          
+          echo "ðŸ” Scanning image: $image_name"
+          trivy image --format json --output "trivy-$(basename $dir).json" "$image_name" || true
+          trivy image --severity HIGH,CRITICAL "$image_name" || true
+        done
+
+    # ================================================
+    # INFRASTRUCTURE SECURITY
+    # ================================================
+    - name: ðŸ” Terraform Security Scan
+      if: hashFiles('infrastructure/**/*.tf') != ''
+      run: |
+        # Install Checkov
+        pip install checkov
+        
+        # Scan Terraform files
+        checkov --directory infrastructure/ --output json --output-file checkov-terraform.json || true
+        checkov --directory infrastructure/ --compact || true
+
+    - name: ðŸ” Kubernetes Security Scan
+      if: hashFiles('k8s/**/*.yaml') != '' || hashFiles('k8s/**/*.yml') != ''
+      run: |
+        # Install KubeSec
+        curl -sSX GET https://api.github.com/repos/controlplaneio/kubesec/releases/latest \
+          | jq -r '.assets[] | select(.name | contains("linux")) | .browser_download_url' \
+          | xargs curl -sSL -o kubesec
+        chmod +x kubesec
+        
+        # Scan Kubernetes manifests
+        find k8s/ -name "*.yaml" -o -name "*.yml" | while read -r file; do
+          echo "ðŸ” Scanning $file"
+          ./kubesec scan "$file" > "kubesec-$(basename $file .yaml).json" || true
+        done
+
