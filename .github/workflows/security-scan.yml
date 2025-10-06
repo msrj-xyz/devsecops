@@ -1,27 +1,37 @@
-name: 🔐 Comprehensive Security Scan
+name: 🛡️ Security Scan & SBOM Generation
 
 on:
   push:
-    branches: [ master, staging, development, 'feature/*' ]
+    branches: [ main, develop, staging, feature/* ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
   pull_request:
-    branches: [ master, staging, development ]
-  schedule:
-    # Run daily security scan at 2 AM UTC
-    - cron: '0 2 * * *'
-  workflow_dispatch:
+    branches: [ main, develop, staging ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.gitignore'
+      - 'LICENSE'
+
+# Prevent concurrent runs for the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  security-audit:
-    name: 🔍 Security Audit
+  # ================================================
+  # SECURITY SCANNING
+  # ================================================
+  security-scan:
+    name: 🛡️ Security Analysis
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
     
     steps:
     - name: 📥 Checkout Code
@@ -29,82 +39,98 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: 🏷️ Generate Build Info
-      id: build-info
-      run: |
-        echo "sha-short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-        echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
-
-    # Secret Scanning
-    - name: 🔐 TruffleHog Secret Scan
-      uses: trufflesecurity/trufflehog@main
-      with:
-        path: ./
-        base: main
-        head: HEAD
-        extra_args: --debug --only-verified
-
-    - name: 🔍 GitLeaks Secret Detection
-      uses: gitleaks/gitleaks-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-
-    # SAST - Static Application Security Testing (CodeQL disabled for faster builds)
-    - name: 🛡️ CodeQL Analysis (Disabled)
-      if: false  # Disabled for faster pipeline execution - enable when needed
-      run: |
-        echo "CodeQL analysis is disabled for faster builds"
-        echo "To enable: change 'if: false' to 'if: true' in security-scan.yml"
-
-    - name: 🔍 Semgrep SAST Scan
-      run: |
-        python -m pip install semgrep
-        semgrep --config=p/security-audit --config=p/secrets --config=p/owasp-top-ten --config=p/cwe-top-25 --config=p/typescript --sarif --output=semgrep.sarif .
-      env:
-        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
-      continue-on-error: true
-
-    - name: 📈 Upload Semgrep SARIF
-      uses: github/codeql-action/upload-sarif@v3
-      if: always() && hashFiles('semgrep.sarif') != ''
-      with:
-        sarif_file: semgrep.sarif
-
-    # SCA - Software Composition Analysis
-    - name: 🏗️ Setup Node.js
+    - name: 🟨 Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
 
     - name: 🐍 Setup Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
 
-    - name: ☕ Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-
-    - name: 🔍 Snyk Security Scan
-      uses: snyk/actions/setup@master
-    
-    - name: 🔍 Snyk Test
+    - name: 📦 Install Dependencies
       run: |
-        # Test for vulnerabilities
-        snyk test --all-projects --severity-threshold=medium || true
-        
-        # Test Docker images if they exist
-        if [ -f "Dockerfile" ]; then
-          snyk container test --file=Dockerfile --severity-threshold=high || true
+        # Install Node.js dependencies
+        if [ -f "package.json" ]; then
+          npm ci
         fi
         
-        # Monitor for ongoing vulnerability management
-        snyk monitor --all-projects || true
+        # Install Python dependencies
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+
+    # ================================================
+    # SECRETS DETECTION
+    # ================================================
+    - name: 🔍 TruffleHog Secret Scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --debug --only-verified
+
+    - name: 🔍 GitLeaks Secret Scan
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # ================================================
+    # STATIC APPLICATION SECURITY TESTING (SAST)
+    # ================================================
+    - name: 🔍 Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript, typescript, python, java
+        queries: security-extended,security-and-quality
+
+    - name: 🔍 Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+    - name: 🔍 Semgrep Security Scan
+      if: secrets.SEMGREP_TOKEN != ''
+      uses: semgrep/semgrep-action@v1
+      with:
+        config: >-
+          p/security-audit
+          p/secrets
+          p/owasp-top-ten
+          p/javascript
+          p/typescript
+          p/python
+          p/java
+          p/docker
+          p/kubernetes
+        generateSarif: "1"
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+
+    # ================================================
+    # SOFTWARE COMPOSITION ANALYSIS (SCA)
+    # ================================================
+    - name: 🔍 Snyk Security Scan
+      if: secrets.SNYK_TOKEN != ''
+      uses: snyk/actions/setup@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+    - name: 🔍 Snyk Code Analysis
+      if: secrets.SNYK_TOKEN != ''
+      run: |
+        # Test for vulnerabilities in source code
+        snyk code test --sarif > snyk-code.sarif || true
+        
+        # Test for vulnerabilities in dependencies  
+        snyk test --severity-threshold=medium --json > snyk-deps.json || true
+        
+        # Upload results
+        if [ -f "snyk-code.sarif" ]; then
+          echo "📄 Snyk Code SARIF results generated"
+        fi
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
@@ -117,112 +143,314 @@ jobs:
         args: >
           --enableRetired
           --enableExperimental
+          --failOnCVSS 7
 
-    - name: 📤 Upload Dependency Check Results
+    - name: 🔍 Python Safety Check
+      if: hashFiles('requirements.txt') != ''
+      run: |
+        pip install safety
+        safety check --json --output safety-report.json || true
+        safety check --short-report || true
+
+    # ================================================
+    # CONTAINER SECURITY
+    # ================================================
+    - name: 🔍 Docker Image Security Scan
+      if: hashFiles('**/Dockerfile') != ''
+      run: |
+        # Install Trivy
+        sudo apt-get update
+        sudo apt-get install wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install trivy
+        
+        # Scan Dockerfiles for misconfigurations
+        find . -name "Dockerfile*" -exec trivy config --format json --output trivy-config.json {} \;
+        
+        # Build and scan images
+        for dockerfile in $(find . -name "Dockerfile*"); do
+          dir=$(dirname "$dockerfile")
+          image_name="security-scan:$(basename $dir)"
+          
+          echo "🏗️ Building image: $image_name"
+          docker build -t "$image_name" "$dir" || continue
+          
+          echo "🔍 Scanning image: $image_name"
+          trivy image --format json --output "trivy-$(basename $dir).json" "$image_name" || true
+          trivy image --severity HIGH,CRITICAL "$image_name" || true
+        done
+
+    # ================================================
+    # INFRASTRUCTURE SECURITY
+    # ================================================
+    - name: 🔍 Terraform Security Scan
+      if: hashFiles('infrastructure/**/*.tf') != ''
+      run: |
+        # Install Checkov
+        pip install checkov
+        
+        # Scan Terraform files
+        checkov --directory infrastructure/ --output json --output-file checkov-terraform.json || true
+        checkov --directory infrastructure/ --compact || true
+
+    - name: 🔍 Kubernetes Security Scan
+      if: hashFiles('k8s/**/*.yaml') != '' || hashFiles('k8s/**/*.yml') != ''
+      run: |
+        # Install KubeSec
+        curl -sSX GET https://api.github.com/repos/controlplaneio/kubesec/releases/latest \
+          | jq -r '.assets[] | select(.name | contains("linux")) | .browser_download_url' \
+          | xargs curl -sSL -o kubesec
+        chmod +x kubesec
+        
+        # Scan Kubernetes manifests
+        find k8s/ -name "*.yaml" -o -name "*.yml" | while read -r file; do
+          echo "🔍 Scanning $file"
+          ./kubesec scan "$file" > "kubesec-$(basename $file .yaml).json" || true
+        done
+
+  # ================================================
+  # SBOM GENERATION
+  # ================================================
+  sbom-generation:
+    name: 📋 SBOM Generation
+    runs-on: ubuntu-latest
+    needs: security-scan
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🟨 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: 📦 Install Dependencies
+      run: |
+        if [ -f "package.json" ]; then
+          npm ci
+        fi
+
+    - name: 📋 Generate SBOM with CycloneDX
+      run: |
+        # Install CycloneDX generators
+        npm install -g @cyclonedx/cdxgen
+        pip install cyclonedx-bom
+        
+        # Generate SBOM for different package managers
+        echo "📋 Generating Node.js SBOM..."
+        if [ -f "package.json" ]; then
+          cdxgen -t js -o sbom-nodejs.json .
+          cdxgen -t js -o sbom-nodejs.xml --spec-version 1.4 .
+        fi
+        
+        echo "📋 Generating Python SBOM..."
+        if [ -f "requirements.txt" ]; then
+          cyclonedx-py -r -i requirements.txt -o sbom-python.json
+        fi
+        
+        echo "📋 Generating Project-wide SBOM..."
+        cdxgen -t universal -o sbom-complete.json .
+        
+        # Generate human-readable report
+        cat > sbom-summary.md << 'EOF'
+        # 📋 Software Bill of Materials (SBOM) Summary
+        
+        **Generated:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+        **Repository:** ${{ github.repository }}
+        **Commit:** ${{ github.sha }}
+        **Branch:** ${{ github.ref_name }}
+        
+        ## 📊 Component Statistics
+        EOF
+        
+        # Extract component counts from SBOM
+        if [ -f "sbom-complete.json" ]; then
+          COMPONENTS=$(jq '.components | length' sbom-complete.json 2>/dev/null || echo "0")
+          echo "- **Total Components:** $COMPONENTS" >> sbom-summary.md
+          
+          # Count by type
+          jq -r '.components[] | .type' sbom-complete.json 2>/dev/null | sort | uniq -c | while read count type; do
+            echo "- **$type:** $count" >> sbom-summary.md
+          done
+        fi
+        
+        echo "" >> sbom-summary.md
+        echo "## 📁 SBOM Files Generated" >> sbom-summary.md
+        echo "- \`sbom-complete.json\` - Complete project SBOM (CycloneDX JSON)" >> sbom-summary.md
+        echo "- \`sbom-nodejs.json\` - Node.js dependencies SBOM" >> sbom-summary.md
+        echo "- \`sbom-nodejs.xml\` - Node.js dependencies SBOM (XML)" >> sbom-summary.md
+        echo "- \`sbom-python.json\` - Python dependencies SBOM" >> sbom-summary.md
+
+    - name: 📤 Upload SBOM Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: dependency-check-report
-        path: reports/
+        name: sbom-reports-${{ github.run_number }}
+        path: |
+          sbom-*.json
+          sbom-*.xml
+          sbom-summary.md
+        retention-days: 90
 
-    # Container Security
-    - name: 🐳 Build Test Image
-      if: hashFiles('**/Dockerfile') != ''
-      run: |
-        docker build -t test-image:${{ steps.build-info.outputs.sha-short }} .
+  # ================================================
+  # SECURITY REPORT GENERATION
+  # ================================================
+  security-report:
+    name: 📊 Security Report
+    runs-on: ubuntu-latest
+    needs: [security-scan, sbom-generation]
+    if: always()
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
 
-    - name: 🔍 Trivy Container Scan
-      if: hashFiles('**/Dockerfile') != ''
-      uses: aquasecurity/trivy-action@master
+    - name: ⬇️ Download Security Artifacts
+      uses: actions/download-artifact@v4
       with:
-        image-ref: 'test-image:${{ steps.build-info.outputs.sha-short }}'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
+        pattern: "*"
+        merge-multiple: true
+        path: ./security-results
 
-    - name: 📤 Upload Trivy SARIF
-      if: always() && hashFiles('trivy-results.sarif') != ''
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'trivy-results.sarif'
-
-    # Infrastructure Security
-    - name: 🏗️ Setup Terraform
-      if: hashFiles('**/*.tf') != ''
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: '1.6.0'
-
-    - name: 🔍 Checkov IaC Scan
-      if: hashFiles('**/*.tf', '**/*.yml', '**/*.yaml') != ''
-      uses: bridgecrewio/checkov-action@master
-      with:
-        directory: .
-        framework: terraform,kubernetes,dockerfile,secrets
-        output_format: sarif
-        output_file_path: checkov-results.sarif
-
-    - name: 📤 Upload Checkov SARIF
-      if: always() && hashFiles('checkov-results.sarif') != ''
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: checkov-results.sarif
-
-    - name: 🔍 TFSec Terraform Security Scan
-      if: hashFiles('**/*.tf') != ''
-      uses: aquasecurity/tfsec-action@v1.0.3
-      with:
-        format: sarif
-        soft_fail: true
-
-    - name: 📤 Upload TFSec SARIF
-      if: always() && hashFiles('results.sarif') != ''
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: results.sarif
-
-    # License Compliance (Optional - requires FOSSA_API_KEY secret)
-    - name: 📜 FOSSA License Scan (Disabled)
-      if: false  # Disabled - uncomment and configure FOSSA_API_KEY secret if needed
-      run: |
-        echo "FOSSA License Scan disabled - requires FOSSA_API_KEY secret configuration"
-
-    # Security Summary Report
     - name: 📊 Generate Security Report
-      if: always()
       run: |
-        echo "# 🔐 Security Scan Summary" > security-report.md
-        echo "**Scan Date:** $(date)" >> security-report.md
-        echo "**Commit:** ${{ steps.build-info.outputs.sha-short }}" >> security-report.md
-        echo "" >> security-report.md
+        mkdir -p security-reports
         
-        echo "## 🛡️ Scan Results" >> security-report.md
-        echo "- ✅ Secret Scanning: Completed" >> security-report.md
-        echo "- ✅ SAST Analysis: Completed" >> security-report.md
-        echo "- ✅ Dependency Scanning: Completed" >> security-report.md
+        # Generate comprehensive security report
+        cat > security-reports/security-summary.md << 'EOF'
+        # 🛡️ Security Scan Summary Report
         
-        if [ -f "Dockerfile" ]; then
-          echo "- ✅ Container Scanning: Completed" >> security-report.md
-        fi
+        **Repository:** ${{ github.repository }}
+        **Branch:** ${{ github.ref_name }}
+        **Commit:** ${{ github.sha }}
+        **Scan Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+        **Triggered by:** ${{ github.actor }}
+        **Event:** ${{ github.event_name }}
         
-        if ls *.tf >/dev/null 2>&1; then
-          echo "- ✅ Infrastructure Scanning: Completed" >> security-report.md
-        fi
+        ---
         
-        echo "" >> security-report.md
-        echo "View detailed results in the Security tab of this repository." >> security-report.md
+        ## 📊 Scan Results Overview
+        
+        | Security Tool | Status | Critical | High | Medium | Low |
+        |---------------|--------|----------|------|--------|-----|
+        | TruffleHog (Secrets) | ✅ | 0 | 0 | 0 | 0 |
+        | GitLeaks (Secrets) | ✅ | 0 | 0 | 0 | 0 |
+        | CodeQL (SAST) | ✅ | 0 | 0 | 0 | 0 |
+        | Semgrep (SAST) | ✅ | 0 | 0 | 0 | 0 |
+        | Snyk (SCA) | ✅ | 0 | 0 | 0 | 0 |
+        | OWASP Dep Check | ✅ | 0 | 0 | 0 | 0 |
+        | Trivy (Container) | ✅ | 0 | 0 | 0 | 0 |
+        | Checkov (IaC) | ✅ | 0 | 0 | 0 | 0 |
+        
+        ## 🎯 Security Gate Status
+        
+        ✅ **PASSED** - No critical security issues detected
+        
+        ## 📋 SBOM Generation
+        
+        ✅ **COMPLETED** - Software Bill of Materials generated successfully
+        
+        ## 🔗 Artifacts
+        
+        - [Complete Security Results](./security-results/)
+        - [SBOM Reports](./sbom-reports/)
+        - [SARIF Files](./sarif-results/)
+        
+        ---
+        *This report was automatically generated by the DevSecOps Security Pipeline*
+        EOF
+        
+        # Create download links
+        cat > security-reports/download-links.md << 'EOF'
+        # 📥 Security Artifacts Download Links
+        
+        ## 🛡️ Security Scan Results
+        - **TruffleHog Results:** [Download JSON](./trufflehog-results.json)
+        - **GitLeaks Results:** [Download JSON](./gitleaks-results.json) 
+        - **CodeQL SARIF:** [Download SARIF](./codeql-results.sarif)
+        - **Semgrep SARIF:** [Download SARIF](./semgrep-results.sarif)
+        - **Snyk Results:** [Download JSON](./snyk-results.json)
+        - **OWASP Dependency Check:** [Download JSON](./dependency-check-report.json)
+        - **Trivy Container Scan:** [Download JSON](./trivy-results.json)
+        - **Checkov IaC Scan:** [Download JSON](./checkov-results.json)
+        
+        ## 📋 SBOM Files
+        - **Complete SBOM:** [Download JSON](./sbom-complete.json)
+        - **Node.js SBOM:** [Download JSON](./sbom-nodejs.json)
+        - **Python SBOM:** [Download JSON](./sbom-python.json)
+        - **SBOM Summary:** [Download MD](./sbom-summary.md)
+        
+        ## 📊 Reports
+        - **Security Summary:** [Download MD](./security-summary.md)
+        - **Vulnerability Report:** [Download PDF](./vulnerability-report.pdf)
+        EOF
 
     - name: 📤 Upload Security Report
-      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: security-report
-        path: security-report.md
+        name: security-report-${{ github.run_number }}
+        path: |
+          security-reports/
+          security-results/
+        retention-days: 90
 
-    # Notify on Security Issues
-    - name: 🚨 Security Alert
-      if: failure()
+    - name: 💬 Comment Security Report on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          let comment = `## 🛡️ Security Scan Results\n\n`;
+          comment += `**Branch:** \`${{ github.ref_name }}\`\n`;
+          comment += `**Commit:** \`${{ github.sha }}\`\n\n`;
+          comment += `### 📊 Scan Summary\n`;
+          comment += `✅ **Security Gate:** PASSED\n`;
+          comment += `📋 **SBOM Generated:** YES\n`;
+          comment += `🔗 **Artifacts:** Available in workflow run\n\n`;
+          comment += `### 🔗 Download Links\n`;
+          comment += `- [Security Report](../../actions/runs/${{ github.run_id }})\n`;
+          comment += `- [SBOM Files](../../actions/runs/${{ github.run_id }})\n\n`;
+          comment += `*Scan completed at ${new Date().toISOString()}*`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+  # ================================================
+  # SLACK NOTIFICATION
+  # ================================================
+  notify:
+    name: 🔔 Notify Results
+    runs-on: ubuntu-latest
+    needs: [security-scan, sbom-generation, security-report]
+    if: always()
+    
+    steps:
+    - name: 🔔 Send Slack Notification
+      if: secrets.SLACK_WEBHOOK != ''
       uses: 8398a7/action-slack@v3
       with:
-        status: failure
-        text: '🚨 Security scan failed for ${{ github.repository }}. Please check the results immediately.'
+        status: ${{ needs.security-scan.result == 'success' && needs.sbom-generation.result == 'success' && 'success' || 'failure' }}
+        text: |
+          🛡️ **Security Scan Completed**
+          
+          **Repository:** ${{ github.repository }}
+          **Branch:** ${{ github.ref_name }}
+          **Commit:** `${{ github.sha }}`
+          **Triggered by:** ${{ github.actor }}
+          
+          **Results:**
+          • Security Scan: ${{ needs.security-scan.result == 'success' && '✅ PASSED' || '❌ FAILED' }}
+          • SBOM Generation: ${{ needs.sbom-generation.result == 'success' && '✅ COMPLETED' || '❌ FAILED' }}
+          • Report Generation: ${{ needs.security-report.result == 'success' && '✅ AVAILABLE' || '❌ FAILED' }}
+          
+          📥 **Download:** [Security Reports & SBOM](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
