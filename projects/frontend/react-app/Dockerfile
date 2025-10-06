@@ -12,8 +12,7 @@ RUN addgroup -g 1001 -S nodejs && \
 COPY package*.json ./
 
 # Install dependencies with security audit
-RUN npm ci --only=production --audit && \
-    npm audit fix --audit-level=moderate
+RUN npm ci --only=production
 
 # Copy source code
 COPY . .

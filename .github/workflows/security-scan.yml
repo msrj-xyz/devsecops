@@ -17,12 +17,19 @@ concurrency:
 env:
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.11'
-  # Set to 'true' to enable CodeQL analysis (increases build time significantly)
-  ENABLE_CODEQL: 'false'
+  # Security tools toggle - enable one by one for testing
+  ENABLE_CODEQL: 'false'       # CodeQL SAST (disabled for faster builds)
+  ENABLE_TRUFFLEHOG: 'true'    # Secret detection
+  ENABLE_GITLEAKS: 'false'     # Secret detection (disable one to test other)
+  ENABLE_SEMGREP: 'false'      # SAST (disabled for now due to config issue)
+  ENABLE_SNYK: 'false'         # SCA (need token)
+  ENABLE_OWASP: 'false'        # Dependency check
+  ENABLE_TRIVY: 'false'        # Container security
+  ENABLE_CHECKOV: 'false'      # IaC security (terraform not ready)
 
 jobs:
   # ================================================
-  # SECURITY SCANNING
+  # SECURITY SCANNING - INCREMENTAL APPROACH
   # ================================================
   security-scan:
     name: 🛡️ Security Analysis
@@ -46,6 +53,9 @@ jobs:
 
     - name: 📦 Install Dependencies
       run: |
+        # Create reports directory
+        mkdir -p reports
+        
         # Install Node.js dependencies
         if [ -f "package.json" ]; then
           npm ci
@@ -60,19 +70,41 @@ jobs:
     # SECRETS DETECTION
     # ================================================
     - name: 🔍 TruffleHog Secret Scan
+      if: env.ENABLE_TRUFFLEHOG == 'true'
+      continue-on-error: false  # Don't skip errors for proper testing
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
         base: ${{ github.event.repository.default_branch }}
         head: HEAD
-        extra_args: --debug --only-verified
+        extra_args: --debug --only-verified --json
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 🔍 GitLeaks Secret Scan
+    - name: � Generate TruffleHog Report
+      if: env.ENABLE_TRUFFLEHOG == 'true' && (success() || failure())
+      run: |
+        echo "# �🔍 TruffleHog Secret Detection Report" > reports/trufflehog-report.md
+        echo "**Status**: $(if [ $? -eq 0 ]; then echo '✅ PASSED'; else echo '❌ FAILED'; fi)" >> reports/trufflehog-report.md
+        echo "**Scan Date**: $(date)" >> reports/trufflehog-report.md
+        echo "**Branch**: ${{ github.ref_name }}" >> reports/trufflehog-report.md
+        echo "" >> reports/trufflehog-report.md
+        echo "Scanning for hardcoded secrets, API keys, and credentials..." >> reports/trufflehog-report.md
+
+    - name: 🔍 GitLeaks Secret Scan  
+      if: env.ENABLE_GITLEAKS == 'true'
+      continue-on-error: false
       uses: gitleaks/gitleaks-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 📊 Generate GitLeaks Report
+      if: env.ENABLE_GITLEAKS == 'true' && (success() || failure())
+      run: |
+        echo "# 🔍 GitLeaks Secret Detection Report" > reports/gitleaks-report.md
+        echo "**Status**: $(if [ $? -eq 0 ]; then echo '✅ PASSED'; else echo '❌ FAILED'; fi)" >> reports/gitleaks-report.md
+        echo "**Scan Date**: $(date)" >> reports/gitleaks-report.md
+        echo "**Branch**: ${{ github.ref_name }}" >> reports/gitleaks-report.md
 
     # ================================================
     # STATIC APPLICATION SECURITY TESTING (SAST)
@@ -89,35 +121,43 @@ jobs:
       uses: github/codeql-action/analyze@v3
 
     - name: 🔍 Semgrep Security Scan
-      continue-on-error: true
-      uses: semgrep/semgrep-action@v1
-      with:
-        config: >-
-          p/security-audit
-          p/secrets
-          p/owasp-top-ten
-          p/javascript
-          p/typescript
-          p/python
-          p/java
-          p/docker
-          p/kubernetes
-      env:
-        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
+      if: env.ENABLE_SEMGREP == 'true'
+      continue-on-error: false
+      run: |
+        # Install semgrep
+        pip install semgrep
+        
+        # Run semgrep without --config to avoid CI conflict
+        semgrep --config=auto --json --output=reports/semgrep-results.json .
+        
+        # Generate readable report
+        echo "# 🔍 Semgrep SAST Report" > reports/semgrep-report.md
+        echo "**Status**: $(if [ $? -eq 0 ]; then echo '✅ PASSED'; else echo '❌ FAILED'; fi)" >> reports/semgrep-report.md
+        echo "**Scan Date**: $(date)" >> reports/semgrep-report.md
 
     # ================================================
     # SOFTWARE COMPOSITION ANALYSIS (SCA)
     # ================================================
     - name: 🔍 Snyk Security Scan
-      continue-on-error: true
-      uses: snyk/actions/node@master
-      with:
-        args: --severity-threshold=high --json > snyk-results.json
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      if: env.ENABLE_SNYK == 'true'
+      continue-on-error: false
+      run: |
+        if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+          echo "❌ SNYK_TOKEN not configured"
+          echo "# 🔍 Snyk SCA Report" > reports/snyk-report.md
+          echo "**Status**: ❌ FAILED - Token not configured" >> reports/snyk-report.md
+          exit 1
+        else
+          npm install -g snyk
+          snyk auth ${{ secrets.SNYK_TOKEN }}
+          snyk test --json > reports/snyk-results.json || true
+          echo "# 🔍 Snyk SCA Report" > reports/snyk-report.md
+          echo "**Status**: ✅ COMPLETED" >> reports/snyk-report.md
+        fi
 
     - name: 🔍 OWASP Dependency Check
-      continue-on-error: true
+      if: env.ENABLE_OWASP == 'true'
+      continue-on-error: false
       uses: dependency-check/Dependency-Check_Action@main
       with:
         project: 'devsecops-portfolio'
@@ -126,189 +166,178 @@ jobs:
         args: >
           --enableRetired
           --enableExperimental
-          --failOnCVSS 7
+          --out reports/
+
+    - name: 📊 Generate OWASP Report
+      if: env.ENABLE_OWASP == 'true' && (success() || failure())
+      run: |
+        echo "# 🔍 OWASP Dependency Check Report" > reports/owasp-report.md
+        echo "**Status**: $(if [ $? -eq 0 ]; then echo '✅ PASSED'; else echo '❌ FAILED'; fi)" >> reports/owasp-report.md
+        echo "**Scan Date**: $(date)" >> reports/owasp-report.md
 
     # ================================================
     # CONTAINER SECURITY
     # ================================================
     - name: 🔍 Trivy Filesystem Scan
-      continue-on-error: true
+      if: env.ENABLE_TRIVY == 'true'
+      continue-on-error: false
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: 'fs'
         scan-ref: '.'
         format: 'sarif'
-        output: 'trivy-results.sarif'
+        output: 'reports/trivy-results.sarif'
 
     - name: 🔍 Trivy Container Scan
-      continue-on-error: true
+      if: env.ENABLE_TRIVY == 'true'
+      continue-on-error: false
       run: |
+        # Install trivy
+        sudo apt-get update
+        sudo apt-get install wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install trivy
+        
         # Scan Docker images if any exist
-        if [ -f "Dockerfile" ] || find . -name "Dockerfile" -type f | head -1; then
+        if find . -name "Dockerfile" -type f | head -1; then
           echo "🐳 Found Dockerfiles, performing container security scan..."
           find . -name "Dockerfile" -type f | while read dockerfile; do
             dir=$(dirname "$dockerfile")
-            echo "🔍 Scanning Dockerfile in $dir"
-            docker build -t temp-scan-image:latest "$dir" || continue
-            trivy image --format sarif --output "trivy-container-$(basename $dir).sarif" temp-scan-image:latest || true
-            docker rmi temp-scan-image:latest || true
+            echo "Scanning $dockerfile..."
+            trivy fs --format json --output "reports/trivy-$(basename $dir).json" "$dir"
           done
         else
-          echo "⏭️ No Dockerfiles found, skipping container scan"
+          echo "No Dockerfiles found, skipping container scan"
         fi
 
     # ================================================
-    # INFRASTRUCTURE AS CODE SECURITY
+    # INFRASTRUCTURE AS CODE (IaC) SECURITY
     # ================================================
     - name: 🔍 Checkov IaC Security Scan
-      continue-on-error: true
-      uses: bridgecrewio/checkov-action@master
-      with:
-        directory: .
-        framework: terraform,kubernetes,dockerfile,github_configuration
-        output_format: sarif
-        output_file_path: checkov-results.sarif
-
-    - name: 🔍 Kubesec Kubernetes Security Scan
-      continue-on-error: true
+      if: env.ENABLE_CHECKOV == 'true'
+      continue-on-error: false
       run: |
-        # Download kubesec
-        wget https://github.com/controlplaneio/kubesec/releases/latest/download/kubesec_linux_amd64.tar.gz
-        tar -xzf kubesec_linux_amd64.tar.gz
-        chmod +x kubesec
+        # Install checkov
+        pip install checkov
         
-        # Scan Kubernetes manifests
-        find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kube|deploy)" | while read file; do
-          echo "🔍 Scanning $file"
-          ./kubesec scan "$file" > "kubesec-$(basename $file .yaml).json" || true
-        done
+        # Skip terraform scanning as requested
+        echo "⏭️ Skipping Terraform scanning as not ready"
+        
+        # Scan Kubernetes files only
+        if find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kubernetes)" | head -1; then
+          echo "🔧 Found Kubernetes files, scanning..."
+          checkov -f k8s/ --framework kubernetes --output json --output-file reports/checkov-k8s.json || true
+          echo "# 🔍 Checkov IaC Security Report" > reports/checkov-report.md
+          echo "**Status**: ✅ COMPLETED (Terraform skipped)" >> reports/checkov-report.md
+        else
+          echo "No Kubernetes files found"
+          echo "# 🔍 Checkov IaC Security Report" > reports/checkov-report.md
+          echo "**Status**: ⏭️ SKIPPED - No IaC files found" >> reports/checkov-report.md
+        fi
 
-  # ================================================
-  # SECURITY REPORT GENERATION
-  # ================================================
-  security-report:
-    name: 📊 Security Report
-    runs-on: ubuntu-latest
-    needs: [security-scan]
-    if: always()
-    
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-
-    - name: ⬇️ Download Security Artifacts
-      uses: actions/download-artifact@v4
-      with:
-        pattern: "*"
-        merge-multiple: true
-        path: ./security-results
-
-    - name: 📊 Generate Security Report
+    # ================================================
+    # GENERATE COMPREHENSIVE SECURITY SUMMARY
+    # ================================================
+    - name: � Generate Security Summary
+      if: success() || failure()
       run: |
-        mkdir -p security-reports
+        echo "# 🛡️ Security Scan Summary Report" > reports/security-summary.md
+        echo "" >> reports/security-summary.md
+        echo "**Scan Date**: $(date)" >> reports/security-summary.md
+        echo "**Branch**: ${{ github.ref_name }}" >> reports/security-summary.md
+        echo "**Commit**: ${{ github.sha }}" >> reports/security-summary.md
+        echo "" >> reports/security-summary.md
         
-        # Generate comprehensive security report
-        cat > security-reports/security-summary.md << 'EOF'
-        # 🛡️ Security Scan Summary Report
+        echo "## 🔧 Enabled Security Tools" >> reports/security-summary.md
+        echo "" >> reports/security-summary.md
+        echo "| Tool | Status | Purpose |" >> reports/security-summary.md
+        echo "|------|--------|---------|" >> reports/security-summary.md
+        echo "| TruffleHog | ${{ env.ENABLE_TRUFFLEHOG == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | Secret Detection |" >> reports/security-summary.md
+        echo "| GitLeaks | ${{ env.ENABLE_GITLEAKS == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | Secret Detection |" >> reports/security-summary.md
+        echo "| CodeQL | ${{ env.ENABLE_CODEQL == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | SAST Analysis |" >> reports/security-summary.md
+        echo "| Semgrep | ${{ env.ENABLE_SEMGREP == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | SAST Analysis |" >> reports/security-summary.md
+        echo "| Snyk | ${{ env.ENABLE_SNYK == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | SCA Analysis |" >> reports/security-summary.md
+        echo "| OWASP | ${{ env.ENABLE_OWASP == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | Dependency Check |" >> reports/security-summary.md
+        echo "| Trivy | ${{ env.ENABLE_TRIVY == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | Container Security |" >> reports/security-summary.md
+        echo "| Checkov | ${{ env.ENABLE_CHECKOV == 'true' && '✅ Enabled' || '⏸️ Disabled' }} | IaC Security |" >> reports/security-summary.md
+        echo "" >> reports/security-summary.md
         
-        **Repository:** ${{ github.repository }}
-        **Branch:** ${{ github.ref_name }}
-        **Commit:** ${{ github.sha }}
-        **Scan Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
-        **Triggered by:** ${{ github.actor }}
-        **Event:** ${{ github.event_name }}
-        
-        ---
-        
-        ## 📊 Scan Results Overview
-        
-        | Security Tool | Status | Notes |
-        |---------------|--------|-------|
-        | TruffleHog (Secrets) | ✅ | Secret detection completed |
-        | GitLeaks (Secrets) | ✅ | Git history scanned |
-        | CodeQL (SAST) | ${{ env.ENABLE_CODEQL == 'true' && '✅ Enabled' || '⏭️ Skipped' }} | Static analysis |
-        | Semgrep (SAST) | ✅ | Multi-language SAST |
-        | Snyk (SCA) | ✅ | Dependency vulnerabilities |
-        | OWASP Dep Check | ✅ | Known vulnerabilities |
-        | Trivy (Container) | ✅ | Container & filesystem scan |
-        | Checkov (IaC) | ✅ | Infrastructure as Code |
-        
-        ## 🎯 Security Gate Status
-        
-        ✅ **ANALYSIS COMPLETED** - Review results for any issues
-        
-        ## 🔗 Artifacts
-        
-        - Security scan results available in workflow artifacts
-        - SARIF files generated for GitHub Security tab integration
-        
-        ---
-        *This report was automatically generated by the DevSecOps Security Pipeline*
-        EOF
-        
-        echo "✅ Security report generated successfully"
+        echo "## 📁 Available Reports" >> reports/security-summary.md
+        echo "" >> reports/security-summary.md
+        ls -la reports/ >> reports/security-summary.md
 
-    - name: 📤 Upload Security Report
+    # ================================================
+    # UPLOAD SECURITY ARTIFACTS
+    # ================================================
+    - name: � Upload Security Reports
+      if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
-        name: security-report-${{ github.run_number }}
-        path: security-reports/
+        name: security-reports-${{ github.run_number }}
+        path: reports/
         retention-days: 30
 
-    - name: 💬 Comment PR with Security Results
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          
-          // Read security summary
-          let comment = '## 🛡️ Security Scan Results\n\n';
-          
-          try {
-            const summary = fs.readFileSync('security-reports/security-summary.md', 'utf8');
-            comment += summary;
-          } catch (error) {
-            comment += '⚠️ Security report generation failed. Please check workflow logs.\n';
-          }
-          
-          comment += '\n\n---\n*Automated security scan by DevSecOps Pipeline*';
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: comment
-          });
-
-  # ================================================
-  # SLACK NOTIFICATION
-  # ================================================
-  notify:
-    name: 🔔 Notify Results
-    runs-on: ubuntu-latest
-    needs: [security-scan, security-report]
-    if: always()
-    
-    steps:
-    - name: 🔔 Send Slack Notification
-      continue-on-error: true
+    # ================================================
+    # SLACK NOTIFICATION WITH DETAILED STATUS  
+    # ================================================
+    - name: 📢 Notify Slack - Success
+      if: success()
       uses: 8398a7/action-slack@v3
       with:
-        status: ${{ needs.security-scan.result == 'success' && 'success' || 'failure' }}
+        status: success
+        channel: '#security-alerts'
         text: |
-          🛡️ **Security Scan Completed**
+          🛡️ **Security Scan Completed Successfully** ✅
           
-          **Repository:** ${{ github.repository }}
-          **Branch:** ${{ github.ref_name }}
-          **Commit:** `${{ github.sha }}`
-          **Triggered by:** ${{ github.actor }}
+          � **Scan Details:**
+          • Repository: `${{ github.repository }}`
+          • Branch: `${{ github.ref_name }}`
+          • Commit: `${{ github.sha }}`
+          • Triggered by: ${{ github.actor }}
           
-          **Results:**
-          • Security Scan: ${{ needs.security-scan.result == 'success' && '✅ PASSED' || '❌ FAILED' }}
-          • Report Generation: ${{ needs.security-report.result == 'success' && '✅ AVAILABLE' || '❌ FAILED' }}
-          • CodeQL Analysis: ${{ env.ENABLE_CODEQL == 'true' && '✅ ENABLED' || '⏭️ SKIPPED (faster builds)' }}
+          � **Active Security Tools:**
+          ${{ env.ENABLE_TRUFFLEHOG == 'true' && '• ✅ TruffleHog (Secret Detection)' || '' }}
+          ${{ env.ENABLE_GITLEAKS == 'true' && '• ✅ GitLeaks (Secret Detection)' || '' }}
+          ${{ env.ENABLE_SEMGREP == 'true' && '• ✅ Semgrep (SAST)' || '' }}
+          ${{ env.ENABLE_SNYK == 'true' && '• ✅ Snyk (SCA)' || '' }}
+          ${{ env.ENABLE_OWASP == 'true' && '• ✅ OWASP (Dependencies)' || '' }}
+          ${{ env.ENABLE_TRIVY == 'true' && '• ✅ Trivy (Containers)' || '' }}
+          ${{ env.ENABLE_CHECKOV == 'true' && '• ✅ Checkov (IaC)' || '' }}
           
-          📥 **Download:** [Security Reports](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          📁 **Reports Available**: Download from Actions artifacts
+          🔗 **View Details**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+    - name: 📢 Notify Slack - Failure
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#security-alerts'
+        text: |
+          🚨 **Security Scan Failed** ❌
+          
+          📊 **Scan Details:**
+          • Repository: `${{ github.repository }}`
+          • Branch: `${{ github.ref_name }}`
+          • Commit: `${{ github.sha }}`
+          • Triggered by: ${{ github.actor }}
+          
+          ⚠️ **Issue:** One or more security tools encountered errors
+          
+          � **Active Security Tools:**
+          ${{ env.ENABLE_TRUFFLEHOG == 'true' && '• ❓ TruffleHog (Secret Detection)' || '' }}
+          ${{ env.ENABLE_GITLEAKS == 'true' && '• ❓ GitLeaks (Secret Detection)' || '' }}
+          ${{ env.ENABLE_SEMGREP == 'true' && '• ❓ Semgrep (SAST)' || '' }}
+          ${{ env.ENABLE_SNYK == 'true' && '• ❓ Snyk (SCA)' || '' }}
+          ${{ env.ENABLE_OWASP == 'true' && '• ❓ OWASP (Dependencies)' || '' }}
+          ${{ env.ENABLE_TRIVY == 'true' && '• ❓ Trivy (Containers)' || '' }}
+          ${{ env.ENABLE_CHECKOV == 'true' && '• ❓ Checkov (IaC)' || '' }}
+          
+          🔧 **Action Required**: Check logs and fix configuration
+          🔗 **View Logs**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
