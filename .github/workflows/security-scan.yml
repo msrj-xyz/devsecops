@@ -2,14 +2,14 @@ name: 🛡️ Security Scan & SBOM Generation
 
 on:
   push:
-    branches: [ main, develop, staging, feature/* ]
+    branches: [ development, staging, feature/* ]
     paths-ignore:
       - 'docs/**'
       - '*.md'
       - '.gitignore'
       - 'LICENSE'
   pull_request:
-    branches: [ main, develop, staging ]
+    branches: [ master, development, staging ]
     paths-ignore:
       - 'docs/**'
       - '*.md'
@@ -43,13 +43,11 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
 
     - name: 🐍 Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
 
     - name: 📦 Install Dependencies
       run: |
@@ -105,7 +103,6 @@ jobs:
           p/java
           p/docker
           p/kubernetes
-        generateSarif: "1"
       env:
         SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_TOKEN }}
 
