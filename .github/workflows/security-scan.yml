@@ -23,8 +23,8 @@ env:
   ENABLE_GITLEAKS: 'false'     # Secret detection ✅ WORKING (found expected test secrets)
   ENABLE_SEMGREP: 'false'      # SAST ✅ TESTED & PASSED (fixed config)
   ENABLE_SNYK: 'false'         # SCA (need token)
-  ENABLE_OWASP: 'true'         # Dependency check ← CURRENTLY TESTING
-  ENABLE_TRIVY: 'false'        # Container security
+  ENABLE_OWASP: 'false'        # Dependency check ✅ TESTED & PASSED
+  ENABLE_TRIVY: 'true'         # Container security ← CURRENTLY TESTING
   ENABLE_CHECKOV: 'false'      # IaC security (terraform not ready)
 
 jobs:
