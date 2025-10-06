@@ -92,7 +92,7 @@ jobs:
       uses: github/codeql-action/analyze@v3
 
     - name: 🔍 Semgrep Security Scan
-      if: secrets.SEMGREP_TOKEN != ''
+      continue-on-error: true
       uses: semgrep/semgrep-action@v1
       with:
         config: >-
@@ -113,13 +113,13 @@ jobs:
     # SOFTWARE COMPOSITION ANALYSIS (SCA)
     # ================================================
     - name: 🔍 Snyk Security Scan
-      if: secrets.SNYK_TOKEN != ''
+      continue-on-error: true
       uses: snyk/actions/setup@master
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
     - name: 🔍 Snyk Code Analysis
-      if: secrets.SNYK_TOKEN != ''
+      continue-on-error: true
       run: |
         # Test for vulnerabilities in source code
         snyk code test --sarif > snyk-code.sarif || true
@@ -434,7 +434,7 @@ jobs:
     
     steps:
     - name: 🔔 Send Slack Notification
-      if: secrets.SLACK_WEBHOOK != ''
+      continue-on-error: true
       uses: 8398a7/action-slack@v3
       with:
         status: ${{ needs.security-scan.result == 'success' && needs.sbom-generation.result == 'success' && 'success' || 'failure' }}

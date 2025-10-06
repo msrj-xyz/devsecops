@@ -470,7 +470,7 @@ jobs:
         retention-days: 90
 
     - name: 🔔 Send Slack Notification
-      if: secrets.SLACK_WEBHOOK != ''
+      continue-on-error: true
       uses: 8398a7/action-slack@v3
       with:
         status: ${{ needs.deploy.result == 'success' && 'success' || 'failure' }}
