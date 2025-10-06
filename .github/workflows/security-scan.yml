@@ -17,15 +17,15 @@ concurrency:
 env:
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.11'
-  # Security tools toggle - enable one by one for testing
+  # Security tools toggle - ALL ENABLED FOR PRODUCTION (except CodeQL)
   ENABLE_CODEQL: 'false'       # CodeQL SAST (disabled for faster builds)
-  ENABLE_TRUFFLEHOG: 'false'   # Secret detection ✅ TESTED & PASSED
-  ENABLE_GITLEAKS: 'false'     # Secret detection ✅ WORKING (found expected test secrets)
-  ENABLE_SEMGREP: 'false'      # SAST ✅ TESTED & PASSED (fixed config)
-  ENABLE_SNYK: 'false'         # SCA (need token)
-  ENABLE_OWASP: 'false'        # Dependency check ✅ TESTED & PASSED
-  ENABLE_TRIVY: 'false'        # Container security ✅ TESTED & PASSED
-  ENABLE_CHECKOV: 'true'       # IaC security ← CURRENTLY TESTING
+  ENABLE_TRUFFLEHOG: 'true'    # Secret detection ✅ PRODUCTION READY
+  ENABLE_GITLEAKS: 'true'      # Secret detection ✅ PRODUCTION READY
+  ENABLE_SEMGREP: 'true'       # SAST ✅ PRODUCTION READY
+  ENABLE_SNYK: 'true'          # SCA ✅ PRODUCTION READY (add token if available)
+  ENABLE_OWASP: 'true'         # Dependency check ✅ PRODUCTION READY
+  ENABLE_TRIVY: 'true'         # Container security ✅ PRODUCTION READY
+  ENABLE_CHECKOV: 'true'       # IaC security ✅ PRODUCTION READY
 
 jobs:
   # ================================================
