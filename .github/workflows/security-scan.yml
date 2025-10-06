@@ -21,9 +21,9 @@ env:
   ENABLE_CODEQL: 'false'       # CodeQL SAST (disabled for faster builds)
   ENABLE_TRUFFLEHOG: 'false'   # Secret detection ✅ TESTED & PASSED
   ENABLE_GITLEAKS: 'false'     # Secret detection ✅ WORKING (found expected test secrets)
-  ENABLE_SEMGREP: 'true'       # SAST ← CURRENTLY TESTING (fixed config)
+  ENABLE_SEMGREP: 'false'      # SAST ✅ TESTED & PASSED (fixed config)
   ENABLE_SNYK: 'false'         # SCA (need token)
-  ENABLE_OWASP: 'false'        # Dependency check
+  ENABLE_OWASP: 'true'         # Dependency check ← CURRENTLY TESTING
   ENABLE_TRIVY: 'false'        # Container security
   ENABLE_CHECKOV: 'false'      # IaC security (terraform not ready)
 
