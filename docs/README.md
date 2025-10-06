@@ -27,6 +27,7 @@ Welcome to the comprehensive documentation center for the DevSecOps Portfolio. T
 | [**🔒 Security Policy**](./SECURITY_POLICY.md) | Comprehensive security policies and procedures | Security Teams, Compliance Officers |
 | [**🛡️ Best Practices Guide**](./BEST_PRACTICES.md) | DevSecOps best practices and implementation guidelines | Developers, DevOps Engineers |
 | [**🗑️ Auto-Destroy Guide**](./AUTO_DESTROY_GUIDE.md) | Automatic resource cleanup for cost optimization | DevOps Engineers, Cost Management |
+| [**🔒 Vulnerability Fix Report**](./VULNERABILITY_FIX_REPORT.md) | nth-check ReDoS vulnerability resolution (CVSS 7.5) | Security Teams, Developers |
 
 ### 👥 **Collaboration & Contribution**
 | Document | Description | Audience |
