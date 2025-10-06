@@ -19,8 +19,8 @@ env:
   PYTHON_VERSION: '3.11'
   # Security tools toggle - enable one by one for testing
   ENABLE_CODEQL: 'false'       # CodeQL SAST (disabled for faster builds)
-  ENABLE_TRUFFLEHOG: 'true'    # Secret detection
-  ENABLE_GITLEAKS: 'false'     # Secret detection (disable one to test other)
+  ENABLE_TRUFFLEHOG: 'false'   # Secret detection ✅ TESTED & PASSED
+  ENABLE_GITLEAKS: 'true'      # Secret detection ← CURRENTLY TESTING
   ENABLE_SEMGREP: 'false'      # SAST (disabled for now due to config issue)
   ENABLE_SNYK: 'false'         # SCA (need token)
   ENABLE_OWASP: 'false'        # Dependency check
