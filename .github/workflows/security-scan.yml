@@ -311,7 +311,9 @@ jobs:
       if: env.ENABLE_CHECKOV == 'true'
       continue-on-error: false
       run: |
-        # Install checkov
+        # Install checkov with dependency resolution
+        pip install --upgrade pip
+        pip install 'urllib3>=2.0,<3.0'
         pip install checkov
         
         # Skip terraform scanning as requested
@@ -320,7 +322,7 @@ jobs:
         # Scan Kubernetes files only
         if find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kubernetes)" | head -1; then
           echo "🔧 Found Kubernetes files, scanning..."
-          checkov -f k8s/ --framework kubernetes --output json --output-file reports/checkov-k8s.json || true
+          checkov -d k8s/ --framework kubernetes --output json --output-file reports/checkov-k8s.json || true
           echo "# 🔍 Checkov IaC Security Report" > reports/checkov-report.md
           echo "**Status**: ✅ COMPLETED (Terraform skipped)" >> reports/checkov-report.md
         else
@@ -437,7 +439,7 @@ jobs:
                 - type: "mrkdwn"
                   text: "*🌿 Branch*\n`${{ github.ref_name }}`"
                 - type: "mrkdwn"
-                  text: "*🕐 Scan Time*\n<!date^${{ github.run_id }}^{date_short_pretty} at {time}|Now>"
+                  text: "*🕐 Scan Time*\n$(date '+%Y-%m-%d %H:%M:%S UTC')"
                 - type: "mrkdwn"
                   text: "*👤 Triggered by*\n${{ github.actor }}"
                 - type: "mrkdwn"
@@ -505,7 +507,7 @@ jobs:
                 - type: "mrkdwn"
                   text: "*🌿 Branch*\n`${{ github.ref_name }}`"
                 - type: "mrkdwn"
-                  text: "*🕐 Failed At*\n<!date^${{ github.run_id }}^{date_short_pretty} at {time}|Now>"
+                  text: "*🕐 Failed At*\n$(date '+%Y-%m-%d %H:%M:%S UTC')"
                 - type: "mrkdwn"
                   text: "*👤 Triggered by*\n${{ github.actor }}"
                 - type: "mrkdwn"
