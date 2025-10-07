@@ -284,60 +284,66 @@ jobs:
     # ================================================
     - name: 📢 Notify Slack - Success
       if: success()
-      uses: 8398a7/action-slack@v3
+      uses: slackapi/slack-github-action@v2.1.1
       with:
-        status: success
-        channel: '#security-alerts'
-        text: |
-          🛡️ **Security Scan Completed Successfully** ✅
-          
-          � **Scan Details:**
-          • Repository: `${{ github.repository }}`
-          • Branch: `${{ github.ref_name }}`
-          • Commit: `${{ github.sha }}`
-          • Triggered by: ${{ github.actor }}
-          
-          � **Active Security Tools:**
-          ${{ env.ENABLE_TRUFFLEHOG == 'true' && '• ✅ TruffleHog (Secret Detection)' || '' }}
-          ${{ env.ENABLE_GITLEAKS == 'true' && '• ✅ GitLeaks (Secret Detection)' || '' }}
-          ${{ env.ENABLE_SEMGREP == 'true' && '• ✅ Semgrep (SAST)' || '' }}
-          ${{ env.ENABLE_SNYK == 'true' && '• ✅ Snyk (SCA)' || '' }}
-          ${{ env.ENABLE_OWASP == 'true' && '• ✅ OWASP (Dependencies)' || '' }}
-          ${{ env.ENABLE_TRIVY == 'true' && '• ✅ Trivy (Containers)' || '' }}
-          ${{ env.ENABLE_CHECKOV == 'true' && '• ✅ Checkov (IaC)' || '' }}
-          
-          📁 **Reports Available**: Download from Actions artifacts
-          🔗 **View Details**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "✅ Security Scan Completed for ${{ github.repository }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "🛡️ Security Scan Completed"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Repository:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Triggered by:* ${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*🔧 Active Security Tools:*\n${{ env.ENABLE_TRUFFLEHOG == 'true' && '• ✅ TruffleHog (Secret Detection)\n' || '' }}${{ env.ENABLE_GITLEAKS == 'true' && '• ✅ GitLeaks (Secret Detection)\n' || '' }}${{ env.ENABLE_SEMGREP == 'true' && '• ✅ Semgrep (SAST)\n' || '' }}${{ env.ENABLE_SNYK == 'true' && '• ✅ Snyk (SCA)\n' || '' }}${{ env.ENABLE_OWASP == 'true' && '• ✅ OWASP (Dependencies)\n' || '' }}${{ env.ENABLE_TRIVY == 'true' && '• ✅ Trivy (Containers)\n' || '' }}${{ env.ENABLE_CHECKOV == 'true' && '• ✅ Checkov (IaC)\n' || '' }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "📁 *Reports Available*: Download from Actions artifacts\n🔗 *View Details*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated security scan | ${GITHUB_REPOSITORY}"
 
     - name: 📢 Notify Slack - Failure
       if: failure()
-      uses: 8398a7/action-slack@v3
+      uses: slackapi/slack-github-action@v2.1.1
       with:
-        status: failure
-        channel: '#security-alerts'
-        text: |
-          🚨 **Security Scan Failed** ❌
-          
-          📊 **Scan Details:**
-          • Repository: `${{ github.repository }}`
-          • Branch: `${{ github.ref_name }}`
-          • Commit: `${{ github.sha }}`
-          • Triggered by: ${{ github.actor }}
-          
-          ⚠️ **Issue:** One or more security tools encountered errors
-          
-          � **Active Security Tools:**
-          ${{ env.ENABLE_TRUFFLEHOG == 'true' && '• ❓ TruffleHog (Secret Detection)' || '' }}
-          ${{ env.ENABLE_GITLEAKS == 'true' && '• ❓ GitLeaks (Secret Detection)' || '' }}
-          ${{ env.ENABLE_SEMGREP == 'true' && '• ❓ Semgrep (SAST)' || '' }}
-          ${{ env.ENABLE_SNYK == 'true' && '• ❓ Snyk (SCA)' || '' }}
-          ${{ env.ENABLE_OWASP == 'true' && '• ❓ OWASP (Dependencies)' || '' }}
-          ${{ env.ENABLE_TRIVY == 'true' && '• ❓ Trivy (Containers)' || '' }}
-          ${{ env.ENABLE_CHECKOV == 'true' && '• ❓ Checkov (IaC)' || '' }}
-          
-          🔧 **Action Required**: Check logs and fix configuration
-          🔗 **View Logs**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "🚨 Security Scan Failed for ${{ github.repository }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "🚨 Security Scan Failed"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Repository:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Triggered by:* ${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "⚠️ *One or more security tools encountered errors or detected issues.*"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*🔧 Active Security Tools:*\n${{ env.ENABLE_TRUFFLEHOG == 'true' && '• ❓ TruffleHog (Secret Detection)\n' || '' }}${{ env.ENABLE_GITLEAKS == 'true' && '• ❓ GitLeaks (Secret Detection)\n' || '' }}${{ env.ENABLE_SEMGREP == 'true' && '• ❓ Semgrep (SAST)\n' || '' }}${{ env.ENABLE_SNYK == 'true' && '• ❓ Snyk (SCA)\n' || '' }}${{ env.ENABLE_OWASP == 'true' && '• ❓ OWASP (Dependencies)\n' || '' }}${{ env.ENABLE_TRIVY == 'true' && '• ❓ Trivy (Containers)\n' || '' }}${{ env.ENABLE_CHECKOV == 'true' && '• ❓ Checkov (IaC)\n' || '' }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "🔧 *Action Required*: Check logs and fix configuration\n🔗 *View Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated security scan | ${GITHUB_REPOSITORY}"
