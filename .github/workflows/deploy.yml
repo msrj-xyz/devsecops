@@ -53,17 +53,12 @@ jobs:
     steps:
     - name: 🎯 Determine Target Environment
       id: env
-      env:
-        EVENT_NAME: ${{ github.event_name }}
-        INPUT_ENVIRONMENT: ${{ inputs.environment }}
-        BASE_REF: ${{ github.base_ref }}
-        FORCE_DEPLOY: ${{ inputs.force-deploy }}
       run: |
-        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-          ENVIRONMENT="$INPUT_ENVIRONMENT"
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          ENVIRONMENT="${{ inputs.environment }}"
           SHOULD_DEPLOY="true"
         else
-          case "$BASE_REF" in
+          case "${{ github.base_ref }}" in
             "staging")
               ENVIRONMENT="staging"
               SHOULD_DEPLOY="true"
@@ -80,7 +75,7 @@ jobs:
         fi
         
         # Determine if security gate is required
-        if [ "$ENVIRONMENT" = "production" ] && [ "$FORCE_DEPLOY" != "true" ]; then
+        if [ "$ENVIRONMENT" = "production" ] && [ "${{ inputs.force-deploy }}" != "true" ]; then
           SECURITY_GATE_REQUIRED="true"
         else
           SECURITY_GATE_REQUIRED="false"
@@ -625,6 +620,49 @@ jobs:
               elements:
                 - type: "mrkdwn"
                   text: "🤖 Automated deployment via GitHub Actions | 📢 Alert sent to #devops-alerts"
+
+    - name: ⚠️ Notify Slack - Deployment Cancelled
+      if: cancelled()
+      continue-on-error: true
+      uses: slackapi/slack-github-action@v2.1.1
+      with:
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "⚠️ Deployment cancelled for ${{ github.repository }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "⚠️ Deployment Cancelled"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Service:* `${{ github.repository }}` deployment was **cancelled**.\n*Environment:* `${{ needs.determine-environment.outputs.environment }}`\n*Branch:* `${{ github.ref_name }}`\n*Triggered by:* ${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*⚠️ Reason:* Deployment was manually cancelled or timed out during execution."
+            - type: "actions"
+              elements:
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "🔄 Restart Deployment"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/actions/workflows/deploy.yml"
+                  style: "primary"
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📊 View Pipeline"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated DevSecOps Pipeline | ⚠️ Deployment cancelled"
 
   # ================================================
   # AUTO-DESTROY AFTER 5 MINUTES
