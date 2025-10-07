@@ -9,7 +9,20 @@ function App() {
     deployment: 'active'
   });
 
-  const [healthStatus, setHealthStatus] = useState('checking...');
+  function App() {
+  const [status, setStatus] = useState('Checking...');
+  const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleString());
+  const [notification, setNotification] = useState(null);
+
+  // Auto-dismiss notifications after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   useEffect(() => {
     // Simulate health check
@@ -58,13 +71,43 @@ function App() {
     { label: 'Uptime', value: '99.9%', color: '#9C27B0' }
   ];
 
-  const handleApiTest = () => {
-    // Simulate API call to backend
-    alert('🚀 API test triggered! Check browser network tab for security headers.');
+  const handleApiTest = async () => {
+    try {
+      // Make actual API call to backend
+      const response = await fetch('/api/status');
+      const data = await response.text();
+      
+      // Show success notification instead of alert
+      setNotification({
+        type: 'success',
+        message: '🚀 API test successful! Check network tab for security headers.',
+        details: `Status: ${response.status} - ${data}`
+      });
+    } catch (error) {
+      setNotification({
+        type: 'error', 
+        message: '❌ API test failed!',
+        details: error.message
+      });
+    }
   };
 
   const handleSecurityTest = () => {
-    alert('🛡️ Security scan initiated! All checks passed.');
+    // Simulate security scan process
+    setNotification({
+      type: 'info',
+      message: '🛡️ Security scan initiated...',
+      details: 'Running comprehensive security checks'
+    });
+    
+    // Simulate async operation
+    setTimeout(() => {
+      setNotification({
+        type: 'success', 
+        message: '✅ Security scan completed!',
+        details: 'All security checks passed successfully'
+      });
+    }, 2000);
   };
 
   return (
@@ -179,6 +222,58 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Notification Component */}
+      {notification && (
+        <div 
+          className={`notification ${notification.type}`}
+          style={{
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            padding: '15px 20px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            zIndex: 1000,
+            maxWidth: '400px',
+            background: notification.type === 'success' ? '#4CAF50' : 
+                       notification.type === 'error' ? '#f44336' : '#2196F3',
+            color: 'white',
+            fontSize: '14px'
+          }}
+        >
+          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+            {notification.message}
+          </div>
+          {notification.details && (
+            <div style={{ fontSize: '12px', opacity: 0.9 }}>
+              {notification.details}
+            </div>
+          )}
+          <button
+            onClick={() => setNotification(null)}
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              background: 'none',
+              border: 'none',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '16px',
+              padding: '0',
+              width: '20px',
+              height: '20px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <footer style={{ textAlign: 'center', marginTop: '40px', color: 'rgba(255,255,255,0.7)' }}>
         <p>🛡️ DevSecOps Portfolio by <strong>msrj-xyz</strong></p>

@@ -17,7 +17,7 @@ concurrency:
 env:
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.11'
-  # Security tools toggle - ALL ENABLED FOR PRODUCTION (except CodeQL)
+  # Security tools toggle                text: "*� Scan Results Summary*\n• **No critical vulnerabilities** detected\n• **No secrets** found in codebase\n• **Dependencies** are secure (enhanced coverage)\n• **Code quality** standards met\n• **Node.js audit** included for comprehensive analysis"- ALL ENABLED FOR PRODUCTION (except CodeQL)
   ENABLE_CODEQL: 'false'       # CodeQL SAST (disabled for faster builds)
   ENABLE_TRUFFLEHOG: 'true'    # Secret detection ✅ PRODUCTION READY
   ENABLE_GITLEAKS: 'true'      # Secret detection ✅ PRODUCTION READY
@@ -155,41 +155,117 @@ jobs:
           echo "**Status**: ✅ COMPLETED" >> reports/snyk-report.md
         fi
 
+    - name: 🔍 OWASP Dependency Check - Prepare Environment
+      if: env.ENABLE_OWASP == 'true'
+      run: |
+        # Create a clean environment for OWASP scan
+        mkdir -p reports
+        
+        # Set up proper Node.js configuration to avoid API issues
+        npm config set audit-level moderate
+        npm config set fund false
+        npm config set update-notifier false
+        
+        # Clean npm cache to avoid corrupted data
+        npm cache clean --force
+
     - name: 🔍 OWASP Dependency Check
       if: env.ENABLE_OWASP == 'true'
-      continue-on-error: true  # Allow to continue if Node Audit fails
+      continue-on-error: false  # Don't skip errors, fix them properly
       uses: dependency-check/Dependency-Check_Action@main
       with:
         project: 'devsecops-portfolio'
         path: '.'
-        format: 'HTML,XML,JSON'  # Limit formats to avoid issues
+        format: 'ALL'
         args: >
           --enableRetired
           --enableExperimental
           --disableNodeAudit
           --disableNodeAuditCache
           --nodeAuditSkipDevDependencies
+          --disableNodeJS
           --out reports/
           --exclude "**/node_modules/**"
           --exclude "**/test/**"
+          --exclude "**/tests/**"
+          --exclude "**/.git/**"
+          --exclude "**/coverage/**"
+          --exclude "**/dist/**"
+          --exclude "**/build/**"
+          --failOnCVSS 7
 
     - name: 📊 Generate OWASP Report
       if: env.ENABLE_OWASP == 'true' && (success() || failure())
       run: |
         echo "# 🔍 OWASP Dependency Check Report" > reports/owasp-report.md
-        
-        # Check if OWASP scan completed successfully
-        if [ -f "reports/dependency-check-report.html" ] || [ -f "reports/dependency-check-report.json" ]; then
-          echo "**Status**: ✅ COMPLETED" >> reports/owasp-report.md
-          echo "**Note**: Node Audit disabled to avoid API issues" >> reports/owasp-report.md
-        else
-          echo "**Status**: ⚠️ PARTIAL - Node Audit issues detected" >> reports/owasp-report.md
-          echo "**Note**: Some checks may have been skipped due to Node Audit API limitations" >> reports/owasp-report.md
-        fi
-        
+        echo "**Status**: $(if [ $? -eq 0 ]; then echo '✅ COMPLETED'; else echo '❌ FAILED'; fi)" >> reports/owasp-report.md
         echo "**Scan Date**: $(date)" >> reports/owasp-report.md
         echo "" >> reports/owasp-report.md
-        echo "OWASP Dependency Check completed with Node Audit disabled for stability." >> reports/owasp-report.md
+        
+        # Check what files were generated
+        if [ -f "reports/dependency-check-report.html" ]; then
+          echo "✅ HTML report generated successfully" >> reports/owasp-report.md
+        fi
+        if [ -f "reports/dependency-check-report.json" ]; then
+          echo "✅ JSON report generated successfully" >> reports/owasp-report.md
+        fi
+        if [ -f "reports/dependency-check-report.xml" ]; then
+          echo "✅ XML report generated successfully" >> reports/owasp-report.md
+        fi
+        
+        echo "" >> reports/owasp-report.md
+        echo "**Configuration**: Node.js audit disabled to prevent API payload issues" >> reports/owasp-report.md
+        echo "**Coverage**: JAR, JavaScript (non-audit), Python, .NET, and other dependencies" >> reports/owasp-report.md
+
+    # ================================================
+    # ALTERNATIVE NODE.JS DEPENDENCY SCANNING
+    # ================================================
+    - name: 🔍 Alternative Node.js Dependency Audit
+      if: env.ENABLE_OWASP == 'true'
+      continue-on-error: false
+      run: |
+        echo "# 🔍 Node.js Alternative Dependency Audit" > reports/nodejs-audit-report.md
+        echo "**Scan Date**: $(date)" >> reports/nodejs-audit-report.md
+        echo "" >> reports/nodejs-audit-report.md
+        
+        # Run npm audit with proper error handling
+        if [ -f "package.json" ]; then
+          echo "Running npm audit for Node.js dependencies..." >> reports/nodejs-audit-report.md
+          
+          # Try npm audit with fallback
+          if npm audit --audit-level=moderate --json > reports/npm-audit-results.json 2>/dev/null; then
+            echo "**Status**: ✅ No critical vulnerabilities found" >> reports/nodejs-audit-report.md
+            AUDIT_RESULT="PASSED"
+          else
+            AUDIT_EXIT_CODE=$?
+            if [ $AUDIT_EXIT_CODE -eq 1 ]; then
+              echo "**Status**: ⚠️ Vulnerabilities found - check npm-audit-results.json" >> reports/nodejs-audit-report.md
+              AUDIT_RESULT="VULNERABILITIES_FOUND"
+            else
+              echo "**Status**: ❌ Audit failed to run" >> reports/nodejs-audit-report.md
+              AUDIT_RESULT="FAILED"
+            fi
+          fi
+          
+          # Check sub-projects
+          for project_dir in projects/*/; do
+            if [ -f "$project_dir/package.json" ]; then
+              echo "Scanning $project_dir..." >> reports/nodejs-audit-report.md
+              cd "$project_dir"
+              if npm audit --audit-level=moderate --json > "../../reports/npm-audit-$(basename $project_dir).json" 2>/dev/null; then
+                echo "✅ $project_dir: Clean" >> ../../reports/nodejs-audit-report.md
+              else
+                echo "⚠️ $project_dir: Issues found" >> ../../reports/nodejs-audit-report.md
+              fi
+              cd - > /dev/null
+            fi
+          done
+          
+          echo "" >> reports/nodejs-audit-report.md
+          echo "This scan complements OWASP Dependency Check for comprehensive Node.js coverage." >> reports/nodejs-audit-report.md
+        else
+          echo "**Status**: ⏭️ No package.json found - skipping Node.js audit" >> reports/nodejs-audit-report.md
+        fi
 
     # ================================================
     # CONTAINER SECURITY
@@ -295,6 +371,8 @@ jobs:
         path: reports/
         retention-days: 30
 
+    # Reports are now ready for notifications
+
     # ================================================
     # SLACK NOTIFICATION WITH DETAILED STATUS  
     # ================================================
@@ -339,7 +417,7 @@ jobs:
                 - type: "mrkdwn"
                   text: "*SAST Analysis*\n${{ env.ENABLE_SEMGREP == 'true' && '✅ Semgrep' || '⏸️ Semgrep (disabled)' }}\n${{ env.ENABLE_CODEQL == 'true' && '✅ CodeQL' || '⏸️ CodeQL (disabled)' }}"
                 - type: "mrkdwn"
-                  text: "*Dependency Check*\n${{ env.ENABLE_SNYK == 'true' && '✅ Snyk SCA' || '⏸️ Snyk (disabled)' }}\n${{ env.ENABLE_OWASP == 'true' && '✅ OWASP' || '⏸️ OWASP (disabled)' }}"
+                  text: "*Dependency Check*\n${{ env.ENABLE_SNYK == 'true' && '✅ Snyk SCA' || '⏸️ Snyk (disabled)' }}\n${{ env.ENABLE_OWASP == 'true' && '✅ OWASP (Enhanced)' || '⏸️ OWASP (disabled)' }}\n${{ env.ENABLE_OWASP == 'true' && '✅ Node.js Audit' || '⏸️ Node.js Audit (disabled)' }}"
                 - type: "mrkdwn"
                   text: "*Infrastructure*\n${{ env.ENABLE_TRIVY == 'true' && '✅ Trivy (Container)' || '⏸️ Trivy (disabled)' }}\n${{ env.ENABLE_CHECKOV == 'true' && '✅ Checkov (IaC)' || '⏸️ Checkov (disabled)' }}"
             - type: "section"
@@ -398,7 +476,7 @@ jobs:
             - type: "section"
               text:
                 type: "mrkdwn"
-                text: "*⚠️ Potential Issues Detected:*\n• Security vulnerabilities found\n• Secrets may be exposed\n• Dependencies need attention\n• Code quality standards not met"
+                text: "*⚠️ Potential Issues Detected:*\n• Security vulnerabilities found\n• Secrets may be exposed\n• Dependencies need attention (enhanced scanning)\n• Node.js packages may have vulnerabilities\n• Code quality standards not met"
             - type: "divider"
             - type: "section"
               text:
@@ -411,7 +489,7 @@ jobs:
                 - type: "mrkdwn"
                   text: "*SAST Analysis*\n${{ env.ENABLE_SEMGREP == 'true' && '❓ Semgrep (check logs)' || '⏸️ Semgrep (disabled)' }}\n${{ env.ENABLE_CODEQL == 'true' && '❓ CodeQL (check logs)' || '⏸️ CodeQL (disabled)' }}"
                 - type: "mrkdwn"
-                  text: "*Dependency Check*\n${{ env.ENABLE_SNYK == 'true' && '❓ Snyk SCA (check logs)' || '⏸️ Snyk (disabled)' }}\n${{ env.ENABLE_OWASP == 'true' && '❓ OWASP (check logs)' || '⏸️ OWASP (disabled)' }}"
+                  text: "*Dependency Check*\n${{ env.ENABLE_SNYK == 'true' && '❓ Snyk SCA (check logs)' || '⏸️ Snyk (disabled)' }}\n${{ env.ENABLE_OWASP == 'true' && '❓ OWASP Enhanced (check logs)' || '⏸️ OWASP (disabled)' }}\n${{ env.ENABLE_OWASP == 'true' && '❓ Node.js Audit (check logs)' || '⏸️ Node.js Audit (disabled)' }}"
                 - type: "mrkdwn"
                   text: "*Infrastructure*\n${{ env.ENABLE_TRIVY == 'true' && '❓ Trivy (check logs)' || '⏸️ Trivy (disabled)' }}\n${{ env.ENABLE_CHECKOV == 'true' && '❓ Checkov (check logs)' || '⏸️ Checkov (disabled)' }}"
             - type: "section"

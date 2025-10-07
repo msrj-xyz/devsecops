@@ -124,16 +124,62 @@ metadata:
   annotations:
     iam.gke.io/gcp-service-account: devsecops-workload-sa@PROJECT_ID.iam.gserviceaccount.com
 
+# ================================================================
+# EXTERNAL SECRETS CONFIGURATION
+# ================================================================
+# Secrets are managed through Google Secret Manager
+# DO NOT PUT ACTUAL SECRETS IN KUBERNETES MANIFESTS
+# This configuration uses External Secrets Operator (ESO)
 ---
-apiVersion: v1
-kind: Secret
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
 metadata:
   name: app-secrets
   namespace: staging
-type: Opaque
-data:
-  database-url: cG9zdGdyZXNxbDovL3VzZXI6cGFzcw==  # Base64 encoded placeholder
-  jwt-secret: c3VwZXItc2VjdXJlLWp3dC1zZWNyZXQ=      # Base64 encoded placeholder
+spec:
+  secretStoreRef:
+    name: gcpsm-secret-store
+    kind: SecretStore
+  target:
+    name: app-secrets
+    creationPolicy: Owner
+  data:
+  - secretKey: database-url
+    remoteRef:
+      key: staging-database-url
+      version: latest
+  - secretKey: jwt-secret  
+    remoteRef:
+      key: staging-jwt-secret
+      version: latest
+
+---
+# SECRET STORE FOR GOOGLE SECRET MANAGER
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: gcpsm-secret-store
+  namespace: staging
+spec:
+  provider:
+    gcpsm:
+      projectId: PROJECT_ID  # Will be replaced by Terraform
+      auth:
+        workloadIdentity:
+          clusterLocation: us-central1
+          clusterName: sb-cluster
+          serviceAccountRef:
+            name: external-secrets-sa
+
+---
+# SERVICE ACCOUNT FOR EXTERNAL SECRETS OPERATOR
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-secrets-sa
+  namespace: staging
+  annotations:
+    iam.gke.io/gcp-service-account: external-secrets-sa@PROJECT_ID.iam.gserviceaccount.com
 
 ---
 apiVersion: networking.k8s.io/v1
