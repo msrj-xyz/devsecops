@@ -97,3 +97,6 @@ updates:
     commit-message:
       prefix: "🤖 GitHub Actions Security"
       include: "scope"
+
+# Auto-merge configuration for low-risk updates is handled by GitHub branch protection rules
+# and can be configured in repository settings for patch and minor updates only

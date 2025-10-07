@@ -53,12 +53,17 @@ jobs:
     steps:
     - name: 🎯 Determine Target Environment
       id: env
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        BASE_REF: ${{ github.base_ref }}
+        FORCE_DEPLOY: ${{ inputs.force-deploy }}
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          ENVIRONMENT="${{ inputs.environment }}"
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          ENVIRONMENT="$INPUT_ENVIRONMENT"
           SHOULD_DEPLOY="true"
         else
-          case "${{ github.base_ref }}" in
+          case "$BASE_REF" in
             "staging")
               ENVIRONMENT="staging"
               SHOULD_DEPLOY="true"
@@ -75,7 +80,7 @@ jobs:
         fi
         
         # Determine if security gate is required
-        if [ "$ENVIRONMENT" = "production" ] && [ "${{ inputs.force-deploy }}" != "true" ]; then
+        if [ "$ENVIRONMENT" = "production" ] && [ "$FORCE_DEPLOY" != "true" ]; then
           SECURITY_GATE_REQUIRED="true"
         else
           SECURITY_GATE_REQUIRED="false"
@@ -203,6 +208,8 @@ jobs:
 
     - name: 🏗️ Build and Push Container Images
       id: build
+      env:
+        DEPLOY_ENV: ${{ needs.determine-environment.outputs.environment }}
       run: |
         IMAGES_BUILT=""
         
@@ -219,10 +226,10 @@ jobs:
           echo "🏗️ Building image for: $project_name"
           
           # Determine image tag
-          if [ "${{ needs.determine-environment.outputs.environment }}" = "production" ]; then
+          if [ "$DEPLOY_ENV" = "production" ]; then
             IMAGE_TAG="latest"
           else
-            IMAGE_TAG="${{ needs.determine-environment.outputs.environment }}"
+            IMAGE_TAG="$DEPLOY_ENV"
           fi
           
           IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/$project_name:$IMAGE_TAG"

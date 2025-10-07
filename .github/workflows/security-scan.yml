@@ -371,6 +371,43 @@ jobs:
         path: reports/
         retention-days: 30
 
+    # ================================================
+    # SBOM GENERATION FOR SUPPLY CHAIN SECURITY
+    # ================================================
+    - name: 📋 Generate Software Bill of Materials (SBOM)
+      if: always()
+      continue-on-error: true
+      run: |
+        echo "# 📋 Software Bill of Materials (SBOM)" > reports/sbom-report.md
+        echo "**Generated**: $(date)" >> reports/sbom-report.md
+        echo "" >> reports/sbom-report.md
+        
+        # Generate SBOM for different package managers
+        if [ -f "package.json" ]; then
+          echo "## Node.js Dependencies" >> reports/sbom-report.md
+          npm list --all --json > reports/sbom-nodejs.json 2>/dev/null || true
+          if [ -f "reports/sbom-nodejs.json" ]; then
+            echo "✅ Node.js SBOM generated" >> reports/sbom-report.md
+          fi
+        fi
+        
+        # Generate SBOM for sub-projects
+        for project_dir in projects/*/; do
+          if [ -f "$project_dir/package.json" ]; then
+            project_name=$(basename "$project_dir")
+            echo "## $project_name Dependencies" >> reports/sbom-report.md
+            cd "$project_dir"
+            npm list --all --json > "../../reports/sbom-$project_name.json" 2>/dev/null || true
+            if [ -f "../../reports/sbom-$project_name.json" ]; then
+              echo "✅ $project_name SBOM generated" >> ../../reports/sbom-report.md
+            fi
+            cd - > /dev/null
+          fi
+        done
+        
+        echo "" >> reports/sbom-report.md
+        echo "SBOM files can be used for supply chain analysis and vulnerability tracking." >> reports/sbom-report.md
+
     # Reports are now ready for notifications
 
     # ================================================
