@@ -4,6 +4,8 @@ const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
+const csrf = require('csurf');
+const cookieParser = require('cookie-parser');
 const { body, validationResult } = require('express-validator');
 require('dotenv').config();
 
@@ -57,6 +59,31 @@ app.use(morgan('combined'));
 // Body parsing middleware with size limits
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Cookie parser middleware (required for CSRF)
+app.use(cookieParser());
+
+// CSRF Protection
+const csrfProtection = csrf({ 
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  }
+});
+
+// Apply CSRF protection to all routes except health check
+app.use((req, res, next) => {
+  if (req.path === '/health' || req.path === '/csrf-token') {
+    return next();
+  }
+  csrfProtection(req, res, next);
+});
+
+// CSRF token endpoint
+app.get('/csrf-token', csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
 
 // Request timestamp middleware
 app.use((req, res, next) => {
