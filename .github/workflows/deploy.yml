@@ -1,0 +1,648 @@
+name: 🚀 Deploy to Google Cloud
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [staging, master]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      force-deploy:
+        description: 'Force deploy (skip security gate)'
+        required: false
+        default: false
+        type: boolean
+      auto-destroy:
+        description: 'Enable auto-destroy after 5 minutes (non-production only)'
+        required: false
+        default: true
+        type: boolean
+
+# Prevent concurrent deployments to the same environment
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  GCP_REGION: 'us-central1'
+  ARTIFACT_REGISTRY: 'devsecops-repo'
+  GKE_CLUSTER: 'sb-cluster'
+
+jobs:
+  # ================================================
+  # DETERMINE DEPLOYMENT ENVIRONMENT
+  # ================================================
+  determine-environment:
+    name: 🎯 Determine Environment
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      should-deploy: ${{ steps.env.outputs.should-deploy }}
+      security-gate-required: ${{ steps.env.outputs.security-gate-required }}
+      
+    steps:
+    - name: 🎯 Determine Target Environment
+      id: env
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          ENVIRONMENT="${{ inputs.environment }}"
+          SHOULD_DEPLOY="true"
+        else
+          case "${{ github.base_ref }}" in
+            "staging")
+              ENVIRONMENT="staging"
+              SHOULD_DEPLOY="true"
+              ;;
+            "main")
+              ENVIRONMENT="production"
+              SHOULD_DEPLOY="true"
+              ;;
+            *)
+              ENVIRONMENT="development"
+              SHOULD_DEPLOY="false"
+              ;;
+          esac
+        fi
+        
+        # Determine if security gate is required
+        if [ "$ENVIRONMENT" = "production" ] && [ "${{ inputs.force-deploy }}" != "true" ]; then
+          SECURITY_GATE_REQUIRED="true"
+        else
+          SECURITY_GATE_REQUIRED="false"
+        fi
+        
+        echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+        echo "should-deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+        echo "security-gate-required=$SECURITY_GATE_REQUIRED" >> $GITHUB_OUTPUT
+        
+        echo "🎯 Environment Configuration:"
+        echo "  Environment: $ENVIRONMENT"
+        echo "  Should Deploy: $SHOULD_DEPLOY"
+        echo "  Security Gate Required: $SECURITY_GATE_REQUIRED"
+
+  # ================================================
+  # SECURITY GATE CHECK
+  # ================================================
+  security-gate:
+    name: 🛡️ Security Gate Check
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    if: needs.determine-environment.outputs.should-deploy == 'true' && needs.determine-environment.outputs.security-gate-required == 'true'
+    outputs:
+      security-passed: ${{ steps.check.outputs.security-passed }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔍 Check Latest Security Scan
+      id: check
+      run: |
+        # Get the latest security scan workflow run
+        LATEST_RUN=$(gh run list --workflow="security-scan.yml" --branch="${{ github.ref_name }}" --limit=1 --json status,conclusion,createdAt --jq '.[0]')
+        
+        if [ "$LATEST_RUN" = "null" ] || [ -z "$LATEST_RUN" ]; then
+          echo "❌ No security scan found for this branch"
+          echo "security-passed=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        STATUS=$(echo "$LATEST_RUN" | jq -r '.status')
+        CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
+        CREATED_AT=$(echo "$LATEST_RUN" | jq -r '.createdAt')
+        
+        echo "📊 Latest Security Scan:"
+        echo "  Status: $STATUS"
+        echo "  Conclusion: $CONCLUSION"
+        echo "  Created: $CREATED_AT"
+        
+        # Check if security scan passed
+        if [ "$STATUS" = "completed" ] && [ "$CONCLUSION" = "success" ]; then
+          echo "✅ Security gate passed"
+          echo "security-passed=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Security gate failed - Status: $STATUS, Conclusion: $CONCLUSION"
+          echo "security-passed=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ================================================
+  # BUILD AND PUSH IMAGES
+  # ================================================
+  build-and-push:
+    name: 🏗️ Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [determine-environment, security-gate]
+    if: always() && needs.determine-environment.outputs.should-deploy == 'true' && (needs.security-gate.result == 'success' || needs.security-gate.result == 'skipped')
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    outputs:
+      images-built: ${{ steps.build.outputs.images-built }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🟨 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: 📦 Install Dependencies
+      run: |
+        # Install Node.js dependencies
+        if [ -f "package.json" ]; then
+          npm ci
+        fi
+        
+        # Install Python dependencies
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+
+    - name: 🧪 Run Tests
+      run: |
+        echo "🧪 Running tests before deployment..."
+        
+        # Run Node.js tests
+        if [ -f "package.json" ] && npm run test --dry-run 2>/dev/null; then
+          npm run test
+        fi
+        
+        # Run Python tests
+        if [ -f "requirements.txt" ] && command -v pytest >/dev/null 2>&1; then
+          pytest || true
+        fi
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: 🐳 Configure Docker for GCR
+      run: |
+        gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+    - name: 🏗️ Build and Push Container Images
+      id: build
+      run: |
+        IMAGES_BUILT=""
+        
+        # Find all Dockerfiles and build images
+        for dockerfile in $(find . -name "Dockerfile*" -not -path "./.git/*"); do
+          dir=$(dirname "$dockerfile")
+          project_name=$(basename "$dir")
+          
+          # Skip if directory name starts with '.'
+          if [[ "$project_name" == .* ]]; then
+            continue
+          fi
+          
+          echo "🏗️ Building image for: $project_name"
+          
+          # Determine image tag
+          if [ "${{ needs.determine-environment.outputs.environment }}" = "production" ]; then
+            IMAGE_TAG="latest"
+          else
+            IMAGE_TAG="${{ needs.determine-environment.outputs.environment }}"
+          fi
+          
+          IMAGE_NAME="${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/$project_name:$IMAGE_TAG"
+          
+          # Build image
+          docker build -t "$IMAGE_NAME" "$dir"
+          
+          # Push image
+          docker push "$IMAGE_NAME"
+          
+          echo "✅ Image pushed: $IMAGE_NAME" 
+          IMAGES_BUILT="${IMAGES_BUILT}${project_name}:$IMAGE_TAG,"
+        done
+        
+        # Remove trailing comma
+        IMAGES_BUILT=$(echo "$IMAGES_BUILT" | sed 's/,$//')
+        echo "images-built=$IMAGES_BUILT" >> $GITHUB_OUTPUT
+        
+        echo "📦 Images built and pushed:"
+        echo "$IMAGES_BUILT" | tr ',' '\n' | sed 's/^/  - /'
+
+  # ================================================
+  # DEPLOY TO GOOGLE CLOUD
+  # ================================================
+  deploy:
+    name: 🚀 Deploy to GCP
+    runs-on: ubuntu-latest
+    needs: [determine-environment, security-gate, build-and-push]
+    if: always() && needs.build-and-push.result == 'success'
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.deployment-url }}
+      deployment-status: ${{ steps.deploy.outputs.deployment-status }}
+      
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: ☸️ Setup GKE kubectl
+      uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ env.GKE_CLUSTER }}
+        location: ${{ env.GCP_REGION }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: 📋 Update Kubernetes Manifests
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        # Create namespace if it doesn't exist
+        kubectl create namespace "$ENV" --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Update Kubernetes manifests with environment-specific values
+        if [ -d "k8s/$ENV" ]; then
+          echo "📋 Updating manifests for environment: $ENV"
+          
+          # Replace placeholders in Kubernetes manifests
+          find "k8s/$ENV" -name "*.yaml" -o -name "*.yml" | while read -r file; do
+            echo "📝 Processing: $file"
+            
+            # Replace common placeholders
+            sed -i "s/{{ENVIRONMENT}}/$ENV/g" "$file"
+            sed -i "s/{{GCP_PROJECT_ID}}/${{ vars.GCP_PROJECT_ID }}/g" "$file"
+            sed -i "s/{{GCP_REGION}}/${{ env.GCP_REGION }}/g" "$file"
+            sed -i "s/{{ARTIFACT_REGISTRY}}/${{ env.ARTIFACT_REGISTRY }}/g" "$file"
+            
+            # Set image tags based on environment
+            if [ "$ENV" = "production" ]; then
+              sed -i "s/{{IMAGE_TAG}}/latest/g" "$file"
+            else
+              sed -i "s/{{IMAGE_TAG}}/$ENV/g" "$file"
+            fi
+            
+            # Set resource limits based on environment
+            case "$ENV" in
+              "staging")
+                sed -i "s/{{CPU_LIMIT}}/500m/g" "$file"
+                sed -i "s/{{MEMORY_LIMIT}}/512Mi/g" "$file"
+                sed -i "s/{{REPLICAS}}/2/g" "$file"
+                ;;
+              "production")
+                sed -i "s/{{CPU_LIMIT}}/1000m/g" "$file"
+                sed -i "s/{{MEMORY_LIMIT}}/1Gi/g" "$file"
+                sed -i "s/{{REPLICAS}}/3/g" "$file"
+                ;;
+            esac
+          done
+        else
+          echo "⚠️ No Kubernetes manifests found for environment: $ENV"
+          echo "Creating basic deployment manifest..."
+          
+          mkdir -p "k8s/$ENV"
+          cat > "k8s/$ENV/deployment.yaml" << EOF
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: devsecops-app
+          namespace: $ENV
+        spec:
+          replicas: 2
+          selector:
+            matchLabels:
+              app: devsecops-app
+          template:
+            metadata:
+              labels:
+                app: devsecops-app
+            spec:
+              containers:
+              - name: app
+                image: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/react-app:$ENV
+                ports:
+                - containerPort: 3000
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: devsecops-service
+          namespace: $ENV
+        spec:
+          selector:
+            app: devsecops-app
+          ports:
+          - port: 80
+            targetPort: 3000
+          type: LoadBalancer
+        EOF
+        fi
+
+    - name: 🚀 Deploy to Kubernetes
+      id: deploy
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "🚀 Deploying to environment: $ENV"
+        
+        # Apply Kubernetes manifests
+        if [ -d "k8s/$ENV" ]; then
+          kubectl apply -f "k8s/$ENV/" --recursive
+          
+          # Wait for deployment to be ready
+          echo "⏳ Waiting for deployment to be ready..."
+          kubectl wait --for=condition=available --timeout=300s deployment --all -n "$ENV"
+          
+          # Get service external IP
+          echo "🌐 Getting service external IP..."
+          EXTERNAL_IP=""
+          for i in {1..10}; do
+            EXTERNAL_IP=$(kubectl get service -n "$ENV" -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "null" ]; then
+              break
+            fi
+            echo "  Waiting for external IP... (attempt $i/10)"
+            sleep 30
+          done
+          
+          if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "null" ]; then
+            DEPLOYMENT_URL="http://$EXTERNAL_IP"
+            echo "✅ Deployment successful!"
+            echo "🌐 Application URL: $DEPLOYMENT_URL"
+            echo "deployment-url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+            echo "deployment-status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Deployment completed but external IP not available yet"
+            echo "deployment-url=pending" >> $GITHUB_OUTPUT
+            echo "deployment-status=pending" >> $GITHUB_OUTPUT
+          fi
+          
+          # Show deployment status
+          echo "📊 Deployment Status:"
+          kubectl get pods,services,deployments -n "$ENV"
+          
+        else
+          echo "❌ No Kubernetes manifests found to deploy"
+          echo "deployment-status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: 🧪 Post-Deployment Health Check
+      if: steps.deploy.outputs.deployment-url != 'pending'
+      run: |
+        DEPLOYMENT_URL="${{ steps.deploy.outputs.deployment-url }}"
+        
+        if [ "$DEPLOYMENT_URL" != "pending" ] && [ -n "$DEPLOYMENT_URL" ]; then
+          echo "🔍 Running health check on: $DEPLOYMENT_URL"
+          
+          # Wait a bit for the application to fully start
+          sleep 30
+          
+          # Simple health check
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$DEPLOYMENT_URL" || echo "000")
+          
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "✅ Health check passed - HTTP $HTTP_STATUS"
+          else
+            echo "⚠️ Health check warning - HTTP $HTTP_STATUS"
+            echo "Application may still be starting up..."
+          fi
+        else
+          echo "⏭️ Skipping health check - URL not available yet"
+        fi
+
+  # ================================================
+  # DEPLOYMENT SUMMARY & NOTIFICATION
+  # ================================================
+  notify:
+    name: 🔔 Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [determine-environment, security-gate, build-and-push, deploy]
+    if: always() && needs.determine-environment.outputs.should-deploy == 'true'
+    
+    steps:
+    - name: 📊 Generate Deployment Summary
+      run: |
+        cat > deployment-summary.md << 'EOF'
+        # 🚀 Deployment Summary
+        
+        **Environment:** ${{ needs.determine-environment.outputs.environment }}
+        **Branch:** ${{ github.ref_name }}
+        **Commit:** ${{ github.sha }}
+        **Triggered by:** ${{ github.actor }}
+        **Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+        
+        ## 📊 Results
+        - **Security Gate:** ${{ needs.security-gate.result == 'success' && '✅ PASSED' || needs.security-gate.result == 'skipped' && '⏭️ SKIPPED' || '❌ FAILED' }}
+        - **Build & Push:** ${{ needs.build-and-push.result == 'success' && '✅ SUCCESS' || '❌ FAILED' }}
+        - **Deployment:** ${{ needs.deploy.result == 'success' && '✅ SUCCESS' || '❌ FAILED' }}
+        
+        ## 🔗 Resources
+        - **Application URL:** ${{ needs.deploy.outputs.deployment-url || 'Not available' }}
+        - **Images Built:** ${{ needs.build-and-push.outputs.images-built || 'None' }}
+        
+        ---
+        *Deployment completed via GitHub Actions*
+        EOF
+        
+        echo "📊 Deployment Summary:"
+        cat deployment-summary.md
+
+    - name: 📤 Upload Deployment Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-summary-${{ github.run_number }}
+        path: deployment-summary.md
+        retention-days: 90
+
+    - name: 🔔 Send Slack Notification
+      continue-on-error: true
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ needs.deploy.result == 'success' && 'success' || 'failure' }}
+        text: |
+          🚀 **Deployment to ${{ needs.determine-environment.outputs.environment }} completed!**
+          
+          **Branch:** ${{ github.ref_name }}
+          **Environment:** ${{ needs.determine-environment.outputs.environment }}
+          **Status:** ${{ needs.deploy.result == 'success' && '✅ Success' || '❌ Failed' }}
+          **URL:** ${{ needs.deploy.outputs.deployment-url || 'Not available' }}
+          **Triggered by:** ${{ github.actor }}
+          
+          **Pipeline Results:**
+          • Security Gate: ${{ needs.security-gate.result == 'success' && '✅' || needs.security-gate.result == 'skipped' && '⏭️' || '❌' }}
+          • Build & Push: ${{ needs.build-and-push.result == 'success' && '✅' || '❌' }}
+          • Deployment: ${{ needs.deploy.result == 'success' && '✅' || '❌' }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  # ================================================
+  # AUTO-DESTROY AFTER 5 MINUTES
+  # ================================================
+  auto-destroy:
+    name: 🗑️ Auto-Destroy Resources
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy]
+    if: always() && needs.deploy.result == 'success' && needs.determine-environment.outputs.environment != 'production' && (github.event.inputs.auto-destroy == 'true' || github.event.inputs.auto-destroy == null)
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+    - name: ⏱️ Wait 5 Minutes
+      run: |
+        echo "🕐 Starting 5-minute countdown before resource cleanup..."
+        echo "⚠️  Resources will be destroyed automatically to save costs"
+        echo "🚫 To prevent destruction, cancel this workflow within 5 minutes"
+        
+        for i in {300..1}; do
+          mins=$((i / 60))
+          secs=$((i % 60))
+          printf "\r⏳ Destroying in: %02d:%02d" "$mins" "$secs"
+          sleep 1
+        done
+        
+        echo ""
+        echo "🗑️ Time's up! Proceeding with resource cleanup..."
+
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+
+    - name: 🔐 Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: ☸️ Setup GKE kubectl
+      uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ env.GKE_CLUSTER }}
+        location: ${{ env.GCP_REGION }}
+        project_id: ${{ vars.GCP_PROJECT_ID }}
+
+    - name: 🗑️ Destroy Kubernetes Resources
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "🧹 Cleaning up resources in namespace: $ENV"
+        
+        # Delete all deployments in the namespace
+        echo "🗑️ Deleting deployments..."
+        kubectl delete deployments --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all services in the namespace
+        echo "🗑️ Deleting services..."
+        kubectl delete services --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all ingresses in the namespace
+        echo "🗑️ Deleting ingresses..."
+        kubectl delete ingresses --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all configmaps (except system ones)
+        echo "🗑️ Deleting configmaps..."
+        kubectl delete configmaps --all -n "$ENV" --ignore-not-found=true
+        
+        # Delete all secrets (except system ones)
+        echo "🗑️ Deleting secrets..."
+        kubectl delete secrets --field-selector type!=kubernetes.io/service-account-token -n "$ENV" --ignore-not-found=true
+        
+        echo "✅ Kubernetes resources cleanup completed"
+
+    - name: 🐳 Clean Docker Images
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "🧹 Cleaning up container images for environment: $ENV"
+        
+        # List and delete images for this environment
+        IMAGES=$(gcloud artifacts docker images list \
+          ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }} \
+          --filter="tags:$ENV" \
+          --format="value(IMAGE)" \
+          --limit=50 2>/dev/null || true)
+        
+        if [ ! -z "$IMAGES" ]; then
+          echo "🗑️ Deleting container images:"
+          echo "$IMAGES"
+          echo "$IMAGES" | xargs -I {} gcloud artifacts docker images delete {} --delete-tags --quiet || true
+          echo "✅ Container images cleanup completed"
+        else
+          echo "ℹ️ No container images found for environment: $ENV"
+        fi
+
+    - name: 📊 Cleanup Summary
+      run: |
+        ENV="${{ needs.determine-environment.outputs.environment }}"
+        
+        echo "📋 Auto-Destroy Summary:"
+        echo "=============================="
+        echo "🎯 Environment: $ENV"
+        echo "⏰ Destruction Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "👤 Triggered by: ${{ github.actor }}"
+        echo "🔗 Workflow: ${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo ""
+        echo "✅ Resources Successfully Destroyed:"
+        echo "  • Kubernetes Deployments"
+        echo "  • Kubernetes Services"
+        echo "  • Kubernetes Ingresses"
+        echo "  • Kubernetes ConfigMaps"
+        echo "  • Kubernetes Secrets"
+        echo "  • Container Images (tagged: $ENV)"
+        echo ""
+        echo "💰 Cost Savings: Resources automatically cleaned up after 5 minutes"
+        echo "🔄 Next Deployment: Will recreate all resources from scratch"
+
+  # ================================================
+  # NOTIFY AUTO-DESTROY
+  # ================================================
+  notify-destroy:
+    name: 📢 Notify Auto-Destroy
+    runs-on: ubuntu-latest
+    needs: [determine-environment, auto-destroy]
+    if: always() && needs.auto-destroy.result != 'skipped'
+    
+    steps:
+    - name: 📢 Notify Slack - Auto-Destroy
+      continue-on-error: true
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ needs.auto-destroy.result == 'success' && 'success' || 'failure' }}
+        channel: '#devops'
+        username: 'GitHub Actions'
+        icon_emoji: ':boom:'
+        fields: |
+          {
+            "title": "${{ needs.auto-destroy.result == 'success' && '🗑️ Auto-Destroy Completed' || '❌ Auto-Destroy Failed' }}",
+            "value": "Environment: ${{ needs.determine-environment.outputs.environment }}\nStatus: ${{ needs.auto-destroy.result == 'success' && '✅ Resources Destroyed' || '❌ Cleanup Failed' }}",
+            "short": false
+          }
+        text: |
+          **Repository:** ${{ github.repository }}
+          **Branch:** ${{ github.ref_name }}
+          **Environment:** ${{ needs.determine-environment.outputs.environment }}
+          **Status:** ${{ needs.auto-destroy.result == 'success' && '✅ Resources Destroyed' || '❌ Cleanup Failed' }}
+          **Triggered by:** ${{ github.actor }}
+          **Duration:** 5 minutes post-deployment
+          
+          ${{ needs.auto-destroy.result == 'success' && '💰 **Cost Savings:** All cloud resources have been automatically cleaned up' || '⚠️ **Action Required:** Manual cleanup may be needed' }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

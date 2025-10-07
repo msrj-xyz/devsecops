@@ -36,16 +36,8 @@ spec:
           value: "staging"
         - name: PORT
           value: "3000"
-        - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: app-secrets
-              key: database-url
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: app-secrets
-              key: jwt-secret
+        - name: SECRETS_PATH
+          value: "/etc/secrets"
         resources:
           requests:
             memory: "128Mi"
@@ -82,11 +74,18 @@ spec:
           mountPath: /tmp
         - name: var-cache
           mountPath: /var/cache
+        - name: app-secrets-volume
+          mountPath: "/etc/secrets"
+          readOnly: true
       volumes:
       - name: tmp
         emptyDir: {}
       - name: var-cache
         emptyDir: {}
+      - name: app-secrets-volume
+        secret:
+          secretName: app-secrets
+          defaultMode: 0400
 
 ---
 apiVersion: v1

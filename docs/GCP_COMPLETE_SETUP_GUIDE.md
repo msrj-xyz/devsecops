@@ -62,27 +62,58 @@ This is a comprehensive setup guide for building a comprehensive DevSecOps portf
 ### **Step 4: Secrets Configuration**
 **Navigate to:** "Settings" → "Secrets and variables" → "Actions"
 
-**Add Repository Secrets:**
+**🔐 REPOSITORY SECRETS (Global - for all environments):**
 ```bash
-# Google Cloud Authentication (will be created in GCP step)
-GOOGLE_CREDENTIALS       # JSON key from service account
-GCP_PROJECT_ID          # devsecops-portfolio-001
-GCP_SA_EMAIL            # github-actions-sa@PROJECT_ID.iam.gserviceaccount.com
-
-# Security Tools
-SNYK_TOKEN              # Get from https://snyk.io
+# Security Tools (used in all environments)
+SNYK_TOKEN              # Get from https://snyk.io  
+SEMGREP_TOKEN           # Get from semgrep.dev
 SONAR_TOKEN             # Optional: SonarCloud token
 
 # Notifications
-SLACK_WEBHOOK_URL       # Webhook URL for Slack notifications
+SLACK_WEBHOOK           # Webhook URL for Slack notifications
 ```
 
-### **Step 5: Environment Setup**
+**🌍 ENVIRONMENT SECRETS (Per environment - will be set in Step 5):**
+```bash
+# Development Environment
+GOOGLE_CREDENTIALS      # Dev Service Account JSON
+GCP_PROJECT_ID         # devsecops-portfolio-dev-001
+
+# Staging Environment  
+GOOGLE_CREDENTIALS      # Staging Service Account JSON
+GCP_PROJECT_ID         # devsecops-portfolio-stg-001
+
+# Production Environment
+GOOGLE_CREDENTIALS      # Production Service Account JSON  
+GCP_PROJECT_ID         # devsecops-portfolio-prd-001
+```
+
+### **Step 5: Environment Setup & Environment Secrets**
 1. **Go to:** "Settings" → "Environments"
-2. **Create environments:**
-   - **`development`** - No restrictions
-   - **`staging`** - Optional reviewers
-   - **`production`** - **Required reviewers** (for manual approval)
+2. **Create environments with protection rules:**
+   - **`development`** - No restrictions, automatic deployment
+   - **`staging`** - Optional reviewers, branch restriction: `staging`
+   - **`production`** - **Required reviewers**, branch restriction: `main`
+
+3. **Add Environment Secrets to each environment:**
+   
+   **For `development` environment:**
+   ```bash
+   GOOGLE_CREDENTIALS = <dev-service-account-json>
+   GCP_PROJECT_ID = devsecops-portfolio-dev-001
+   ```
+   
+   **For `staging` environment:**
+   ```bash  
+   GOOGLE_CREDENTIALS = <staging-service-account-json>
+   GCP_PROJECT_ID = devsecops-portfolio-stg-001
+   ```
+   
+   **For `production` environment:**
+   ```bash
+   GOOGLE_CREDENTIALS = <production-service-account-json>
+   GCP_PROJECT_ID = devsecops-portfolio-prd-001
+   ```
 
 ---
 
@@ -91,21 +122,46 @@ SLACK_WEBHOOK_URL       # Webhook URL for Slack notifications
 
 ### **Step 1: Project Creation**
 
-#### **Option A: Via Web Console**
+#### **Option A: Via Web Console (Create Multiple Projects)**
 1. **Go to:** https://console.cloud.google.com/projectcreate
-2. **Project Details:**
-   - **Project Name:** `DevSecOps Portfolio`
-   - **Project ID:** `devsecops-portfolio-001` (or other unique ID)
-3. **Click "Create"**
+2. **Create Development Project:**
+   - **Project Name:** `DevSecOps Portfolio Dev`
+   - **Project ID:** `devsecops-portfolio-dev-001`
+3. **Create Staging Project:**
+   - **Project Name:** `DevSecOps Portfolio Staging`
+   - **Project ID:** `devsecops-portfolio-stg-001`
+4. **Create Production Project:**
+   - **Project Name:** `DevSecOps Portfolio Production`
+   - **Project ID:** `devsecops-portfolio-prd-001`
 
-#### **Option B: Via CLI**
+**💡 Note:** For initial setup, you can start with one project and use different namespaces:
+- **Single Project ID:** `devsecops-portfolio-001`
+- **Environments:** Use Kubernetes namespaces (`dev`, `staging`, `production`)
+
+#### **Option B: Via CLI (Multiple Projects)**
 ```bash
 # Install gcloud CLI if not already installed
 curl https://sdk.cloud.google.com | bash
 exec -l $SHELL
 gcloud auth login
 
-# Create project
+# Create multiple projects
+gcloud projects create devsecops-portfolio-dev-001 \
+  --name="DevSecOps Portfolio Dev"
+  
+gcloud projects create devsecops-portfolio-stg-001 \
+  --name="DevSecOps Portfolio Staging"
+  
+gcloud projects create devsecops-portfolio-prd-001 \
+  --name="DevSecOps Portfolio Production"
+
+# Set development as default for initial setup
+gcloud config set project devsecops-portfolio-dev-001
+```
+
+#### **Option C: Single Project with Namespaces (Recommended for Start)**
+```bash
+# Create single project
 gcloud projects create devsecops-portfolio-001 \
   --name="DevSecOps Portfolio"
 

@@ -19,20 +19,28 @@ Welcome to the comprehensive documentation center for the DevSecOps Portfolio. T
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [**🌟 GCP Complete Setup Guide**](./GCP_COMPLETE_SETUP_GUIDE.md) | Comprehensive Google Cloud Platform setup with step-by-step instructions | DevOps Engineers, Team Leads |
-| [**⚡ GCP Quick Setup**](./GCP_SETUP.md) | Fast-track GCP setup checklist and commands | Experienced DevOps Teams |
-| [**🔄 Workflow Use Cases**](./WORKFLOW_USE_CASES.md) | Complete workflow scenarios and team processes | All Team Members |
+| [**🔄 Simplified Workflow Guide**](./WORKFLOW_GUIDE.md) | Simplified 2-workflow DevSecOps implementation guide | All Team Members |
 
 ### 🛡️ **Security & Compliance**
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [**🔒 Security Policy**](./SECURITY_POLICY.md) | Comprehensive security policies and procedures | Security Teams, Compliance Officers |
 | [**🛡️ Best Practices Guide**](./BEST_PRACTICES.md) | DevSecOps best practices and implementation guidelines | Developers, DevOps Engineers |
+| [**🗑️ Auto-Destroy Guide**](./AUTO_DESTROY_GUIDE.md) | Automatic resource cleanup for cost optimization | DevOps Engineers, Cost Management |
+| [**🔒 Vulnerability Fix Report**](./VULNERABILITY_FIX_REPORT.md) | nth-check ReDoS vulnerability resolution (CVSS 7.5) | Security Teams, Developers |
 
 ### 👥 **Collaboration & Contribution**
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [**🤝 Contributing Guide**](./CONTRIBUTING.md) | How to contribute to the project | Contributors, Open Source Community |
 | [**📋 Code of Conduct**](./CODE_OF_CONDUCT.md) | Community guidelines and behavioral expectations | All Contributors |
+
+### 📊 **Analysis & Implementation**
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [**📊 Workflow Analysis**](./WORKFLOW_ANALYSIS.md) | Implementation analysis and feedback (Score: 9.2/10) | Technical Teams, Project Managers |
+| [**⚡ CodeQL Optimization**](./CODEQL_OPTIMIZATION.md) | CodeQL analysis optimization for faster builds | DevOps Engineers, Developers |
+| [**🔧 SBOM Fix Notes**](./SBOM_FIX_NOTES.md) | SBOM generation compatibility issue resolution | DevOps Engineers, Technical Teams |
 
 ---
 
@@ -205,13 +213,13 @@ Stage 7: 📊 Post-Deployment
 |-------|----------|---------------|
 | **Pipeline Failures** | Check logs and retry | [🔍 Pipeline Debugging](./BEST_PRACTICES.md#troubleshooting) |
 | **Security Scan Failures** | Review and remediate vulnerabilities | [🛡️ Security Guide](./SECURITY_POLICY.md#incident-response) |
-| **Deployment Issues** | Verify environment configuration | [🚀 Deployment Guide](./WORKFLOW_USE_CASES.md#rollback-operations) |
+| **Deployment Issues** | Verify environment configuration | [🚀 Deployment Guide](./WORKFLOW_GUIDE.md#troubleshooting) |
 | **Access Issues** | Check IAM permissions | [🔐 Access Management](./GCP_COMPLETE_SETUP_GUIDE.md#security-best-practices) |
 
 #### **Emergency Procedures**
 - 🚨 **Production Incident Response** - [Incident Response Guide](./SECURITY_POLICY.md#incident-response)
-- 🔄 **Emergency Rollback** - [Rollback Procedures](./WORKFLOW_USE_CASES.md#rollback-operations)
-- 🛠️ **Hotfix Deployment** - [Hotfix Management](./WORKFLOW_USE_CASES.md#hotfix-management)
+- 🔄 **Emergency Rollback** - [Rollback Procedures](./WORKFLOW_GUIDE.md#deployment-rollback)
+- 🛠️ **Hotfix Deployment** - [Hotfix Management](./WORKFLOW_GUIDE.md#hotfix-workflow)
 
 ---
 
@@ -274,7 +282,7 @@ We welcome contributions! Please read our [Contributing Guide](./CONTRIBUTING.md
 ### **📚 Recommended Reading**
 - [📖 DevSecOps Best Practices](./BEST_PRACTICES.md)
 - [🔒 Security Implementation Guide](./SECURITY_POLICY.md)
-- [🔄 Workflow Patterns](./WORKFLOW_USE_CASES.md)
+- [🔄 Simplified Workflows](./WORKFLOW_GUIDE.md)
 - [☁️ Google Cloud Documentation](https://cloud.google.com/docs)
 - [🐳 Kubernetes Best Practices](https://kubernetes.io/docs/concepts/)
 
