@@ -34,7 +34,7 @@ env:
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.11'
   GCP_REGION: 'us-central1'
-  ARTIFACT_REGISTRY: 'devsecops-repo'
+  ARTIFACT_REGISTRY: 'sb-repository'
   GKE_CLUSTER: 'sb-cluster'
 
 jobs:
