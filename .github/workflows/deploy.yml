@@ -475,26 +475,151 @@ jobs:
         path: deployment-summary.md
         retention-days: 90
 
-    - name: 🔔 Send Slack Notification
+    - name: 🔔 Send Slack Notification - Success
+      if: needs.deploy.result == 'success'
       continue-on-error: true
-      uses: 8398a7/action-slack@v3
+      uses: slackapi/slack-github-action@v2.1.1
       with:
-        status: ${{ needs.deploy.result == 'success' && 'success' || 'failure' }}
-        text: |
-          🚀 **Deployment to ${{ needs.determine-environment.outputs.environment }} completed!**
-          
-          **Branch:** ${{ github.ref_name }}
-          **Environment:** ${{ needs.determine-environment.outputs.environment }}
-          **Status:** ${{ needs.deploy.result == 'success' && '✅ Success' || '❌ Failed' }}
-          **URL:** ${{ needs.deploy.outputs.deployment-url || 'Not available' }}
-          **Triggered by:** ${{ github.actor }}
-          
-          **Pipeline Results:**
-          • Security Gate: ${{ needs.security-gate.result == 'success' && '✅' || needs.security-gate.result == 'skipped' && '⏭️' || '❌' }}
-          • Build & Push: ${{ needs.build-and-push.result == 'success' && '✅' || '❌' }}
-          • Deployment: ${{ needs.deploy.result == 'success' && '✅' || '❌' }}
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "✅ Deployment successful to ${{ needs.determine-environment.outputs.environment }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "🎉 Deployment Successful"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Service:* `${{ github.repository }}` has been successfully deployed to *${{ needs.determine-environment.outputs.environment }}*!"
+            - type: "section"
+              fields:
+                - type: "mrkdwn"
+                  text: "*🌿 Branch*\n`${{ github.ref_name }}`"
+                - type: "mrkdwn"
+                  text: "*🌍 Environment*\n`${{ needs.determine-environment.outputs.environment }}`"
+                - type: "mrkdwn"
+                  text: "*⏰ Deployed*\n<!date^${{ github.run_id }}^{date_short_pretty} at {time}|Now>"
+                - type: "mrkdwn"
+                  text: "*👤 Author*\n${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*📝 Commit:*\n`${{ github.sha }}`"
+            - type: "actions"
+              elements:
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "🚀 Open Application"
+                    emoji: true
+                  url: "${{ needs.deploy.outputs.deployment-url || format('https://github.com/{0}', github.repository) }}"
+                  style: "primary"
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📋 View Commit"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📊 View Pipeline"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            - type: "divider"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*🛡️ Pipeline Results*"
+            - type: "section"
+              fields:
+                - type: "mrkdwn"
+                  text: "*Security Gate*\n${{ needs.security-gate.result == 'success' && '✅ Passed' || needs.security-gate.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }}"
+                - type: "mrkdwn"
+                  text: "*Build & Push*\n${{ needs.build-and-push.result == 'success' && '✅ Success' || '❌ Failed' }}"
+                - type: "mrkdwn"
+                  text: "*Deployment*\n${{ needs.deploy.result == 'success' && '✅ Success' || '❌ Failed' }}"
+                - type: "mrkdwn"
+                  text: "*🎯 Environment*\n`${{ needs.determine-environment.outputs.environment }}`"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated deployment via GitHub Actions | DevSecOps Pipeline"
+
+    - name: 🔔 Send Slack Notification - Failure
+      if: needs.deploy.result == 'failure'
+      continue-on-error: true
+      uses: slackapi/slack-github-action@v2.1.1
+      with:
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "⛔ Deployment failed to ${{ needs.determine-environment.outputs.environment }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "🚨 Deployment Failed"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Service:* `${{ github.repository }}` deployment to *${{ needs.determine-environment.outputs.environment }}* failed."
+            - type: "section"
+              fields:
+                - type: "mrkdwn"
+                  text: "*🌿 Failed Branch*\n`${{ github.ref_name }}`"
+                - type: "mrkdwn"
+                  text: "*🌍 Environment*\n`${{ needs.determine-environment.outputs.environment }}`"
+                - type: "mrkdwn"
+                  text: "*⏰ Failed At*\n<!date^${{ github.run_id }}^{date_short_pretty} at {time}|Now>"
+                - type: "mrkdwn"
+                  text: "*👤 Author*\n${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*📝 Commit:*\n`${{ github.sha }}`"
+            - type: "actions"
+              elements:
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "🔍 Debug Logs"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  style: "danger"
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📋 View Commit"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+            - type: "divider"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*🛡️ Pipeline Results*"
+            - type: "section"
+              fields:
+                - type: "mrkdwn"
+                  text: "*Security Gate*\n${{ needs.security-gate.result == 'success' && '✅ Passed' || needs.security-gate.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }}"
+                - type: "mrkdwn"
+                  text: "*Build & Push*\n${{ needs.build-and-push.result == 'success' && '✅ Success' || '❌ Failed' }}"
+                - type: "mrkdwn"
+                  text: "*Deployment*\n❌ Failed"
+                - type: "mrkdwn"
+                  text: "*🎯 Environment*\n`${{ needs.determine-environment.outputs.environment }}`"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*🛠️ Next Steps:*\n• Check the debug logs above\n• Review the commit changes\n• Test locally before retry\n• Contact DevOps team if needed"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated deployment via GitHub Actions | 📢 Alert sent to #devops-alerts"
 
   # ================================================
   # AUTO-DESTROY AFTER 5 MINUTES
@@ -621,28 +746,108 @@ jobs:
     if: always() && needs.auto-destroy.result != 'skipped'
     
     steps:
-    - name: 📢 Notify Slack - Auto-Destroy
+    - name: 📢 Notify Slack - Auto-Destroy Success
+      if: needs.auto-destroy.result == 'success'
       continue-on-error: true
-      uses: 8398a7/action-slack@v3
+      uses: slackapi/slack-github-action@v2.1.1
       with:
-        status: ${{ needs.auto-destroy.result == 'success' && 'success' || 'failure' }}
-        channel: '#devops'
-        username: 'GitHub Actions'
-        icon_emoji: ':boom:'
-        fields: |
-          {
-            "title": "${{ needs.auto-destroy.result == 'success' && '🗑️ Auto-Destroy Completed' || '❌ Auto-Destroy Failed' }}",
-            "value": "Environment: ${{ needs.determine-environment.outputs.environment }}\nStatus: ${{ needs.auto-destroy.result == 'success' && '✅ Resources Destroyed' || '❌ Cleanup Failed' }}",
-            "short": false
-          }
-        text: |
-          **Repository:** ${{ github.repository }}
-          **Branch:** ${{ github.ref_name }}
-          **Environment:** ${{ needs.determine-environment.outputs.environment }}
-          **Status:** ${{ needs.auto-destroy.result == 'success' && '✅ Resources Destroyed' || '❌ Cleanup Failed' }}
-          **Triggered by:** ${{ github.actor }}
-          **Duration:** 5 minutes post-deployment
-          
-          ${{ needs.auto-destroy.result == 'success' && '💰 **Cost Savings:** All cloud resources have been automatically cleaned up' || '⚠️ **Action Required:** Manual cleanup may be needed' }}
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "🗑️ Auto-Destroy completed for ${{ needs.determine-environment.outputs.environment }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "🗑️ Auto-Destroy Completed"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Environment:* `${{ needs.determine-environment.outputs.environment }}` resources have been automatically cleaned up after 5 minutes!"
+            - type: "section"
+              fields:
+                - type: "mrkdwn"
+                  text: "*🏗️ Repository*\n`${{ github.repository }}`"
+                - type: "mrkdwn"
+                  text: "*🌿 Branch*\n`${{ github.ref_name }}`"
+                - type: "mrkdwn"
+                  text: "*⏰ Destroyed At*\n<!date^${{ github.run_id }}^{date_short_pretty} at {time}|Now>"
+                - type: "mrkdwn"
+                  text: "*👤 Triggered by*\n${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*⏱️ Duration:* 5 minutes post-deployment\n*💰 Cost Savings:* All cloud resources automatically cleaned up"
+            - type: "actions"
+              elements:
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📊 View Pipeline"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  style: "primary"
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📋 View Commit"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated cleanup via GitHub Actions | 💚 Environment: ${{ needs.determine-environment.outputs.environment }}"
+
+    - name: 📢 Notify Slack - Auto-Destroy Failed
+      if: needs.auto-destroy.result == 'failure'
+      continue-on-error: true
+      uses: slackapi/slack-github-action@v2.1.1
+      with:
+        webhook: ${{ secrets.SLACK_WEBHOOK }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "❌ Auto-Destroy failed for ${{ needs.determine-environment.outputs.environment }}"
+          blocks:
+            - type: "header"
+              text:
+                type: "plain_text"
+                text: "❌ Auto-Destroy Failed"
+                emoji: true
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*Environment:* `${{ needs.determine-environment.outputs.environment }}` cleanup failed. Manual intervention may be required."
+            - type: "section"
+              fields:
+                - type: "mrkdwn"
+                  text: "*🏗️ Repository*\n`${{ github.repository }}`"
+                - type: "mrkdwn"
+                  text: "*🌿 Branch*\n`${{ github.ref_name }}`"
+                - type: "mrkdwn"
+                  text: "*⏰ Failed At*\n<!date^${{ github.run_id }}^{date_short_pretty} at {time}|Now>"
+                - type: "mrkdwn"
+                  text: "*👤 Triggered by*\n${{ github.actor }}"
+            - type: "section"
+              text:
+                type: "mrkdwn"
+                text: "*⚠️ Action Required:* Manual cleanup may be needed to avoid ongoing costs"
+            - type: "actions"
+              elements:
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "� Debug Logs"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  style: "danger"
+                - type: "button"
+                  text:
+                    type: "plain_text"
+                    text: "📋 View Commit"
+                    emoji: true
+                  url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+            - type: "context"
+              elements:
+                - type: "mrkdwn"
+                  text: "🤖 Automated cleanup via GitHub Actions | 🚨 Manual cleanup required"
