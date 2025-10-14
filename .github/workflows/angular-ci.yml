@@ -1,0 +1,25 @@
+name: Angular CI
+
+on:
+  push:
+    paths:
+      - 'projects/frontend/angular-app/**'
+  pull_request:
+    paths:
+      - 'projects/frontend/angular-app/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install
+        working-directory: ./projects/frontend/angular-app
+        run: npm ci
+      - name: Build
+        working-directory: ./projects/frontend/angular-app
+        run: npm run build
