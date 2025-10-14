@@ -24,3 +24,40 @@ jobs:
       - name: Run tests
         working-directory: ./projects/backend/java-api
         run: mvn test
+
+      - name: Login to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./projects/backend/java-api
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/java-api:${{ github.sha }}
+
+      - name: Trivy scan pushed image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/java-api:${{ github.sha }}
+          format: json
+          output: projects/backend/java-api/reports/trivy-java.json
+
+      - name: Semgrep SAST
+        uses: returntocorp/semgrep-action@v2
+        with:
+          config: auto
+        continue-on-error: true
+
+      - name: Maven dependency check
+        working-directory: ./projects/backend/java-api
+        run: mvn org.owasp:dependency-check-maven:check -Dformat=JSON -DoutputDirectory=reports || true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-api-security-reports-${{ github.run_number }}
+          path: projects/backend/java-api/reports/

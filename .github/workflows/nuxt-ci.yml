@@ -1,5 +1,10 @@
 name: Nuxt App CI
 
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
 on:
   push:
     paths:
@@ -29,3 +34,44 @@ jobs:
       - name: Build
         working-directory: ./projects/frontend/nuxt-app
         run: npm run build
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./projects/frontend/nuxt-app
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/nuxt-app:${{ github.sha }}
+
+      - name: Trivy scan pushed image
+        uses: aquasecurity/trivy-action@v0.11.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/nuxt-app:${{ github.sha }}
+          format: json
+          output: projects/frontend/nuxt-app/reports/trivy-nuxt.json
+
+      - name: Run Semgrep SAST
+        uses: returntocorp/semgrep-action@v2
+        with:
+          config: auto
+        continue-on-error: true
+
+      - name: NPM Audit (report)
+        working-directory: ./projects/frontend/nuxt-app
+        run: |
+          mkdir -p reports || true
+          npm audit --json > reports/npm-audit-nuxt.json || true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuxt-security-reports-${{ github.run_number }}
+          path: |
+            projects/frontend/nuxt-app/reports/
+            projects/frontend/nuxt-app/semgrep-results.json

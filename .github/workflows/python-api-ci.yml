@@ -26,3 +26,41 @@ jobs:
         working-directory: ./projects/backend/python-api
         run: |
           pytest -q
+      - name: Login to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./projects/backend/python-api
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/python-api:${{ github.sha }}
+
+      - name: Trivy scan pushed image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/python-api:${{ github.sha }}
+          format: json
+          output: projects/backend/python-api/reports/trivy-python.json
+
+      - name: Semgrep SAST
+        uses: returntocorp/semgrep-action@v2
+        with:
+          config: auto
+        continue-on-error: true
+
+      - name: pip-audit
+        working-directory: ./projects/backend/python-api
+        run: |
+          pip install pip-audit
+          pip-audit --format json > reports/pip-audit-python.json || true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-api-security-reports-${{ github.run_number }}
+          path: projects/backend/python-api/reports/
