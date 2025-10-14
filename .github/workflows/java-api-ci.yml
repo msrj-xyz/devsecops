@@ -1,0 +1,26 @@
+name: Java API CI
+
+on:
+  push:
+    paths:
+      - 'projects/backend/java-api/**'
+  pull_request:
+    paths:
+      - 'projects/backend/java-api/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Build with Maven
+        working-directory: ./projects/backend/java-api
+        run: mvn -B -DskipTests package
+      - name: Run tests
+        working-directory: ./projects/backend/java-api
+        run: mvn test
