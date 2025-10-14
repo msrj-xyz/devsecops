@@ -51,14 +51,16 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/nextjs-app:${{ github.sha }}
 
       - name: Trivy scan pushed image
-        uses: aquasecurity/trivy-action@v0.11.0
+        # use 'master' to follow other workflows in this repo; pin to a released tag when possible
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/nextjs-app:${{ github.sha }}
           format: json
           output: projects/frontend/nextjs-app/reports/trivy-nextjs.json
 
       - name: Run Semgrep SAST
-        uses: returntocorp/semgrep-action@v2
+        # pin to a recent stable release to avoid 'unable to find version' resolution errors
+        uses: returntocorp/semgrep-action@v1.25.0
         with:
           config: auto
         continue-on-error: true
