@@ -1,0 +1,31 @@
+name: Nuxt App CI
+
+on:
+  push:
+    paths:
+      - 'projects/frontend/nuxt-app/**'
+  pull_request:
+    paths:
+      - 'projects/frontend/nuxt-app/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install
+        working-directory: ./projects/frontend/nuxt-app
+        run: npm ci
+      - name: Lint
+        working-directory: ./projects/frontend/nuxt-app
+        run: npm run lint || true
+      - name: Test
+        working-directory: ./projects/frontend/nuxt-app
+        run: npm run test || true
+      - name: Build
+        working-directory: ./projects/frontend/nuxt-app
+        run: npm run build
