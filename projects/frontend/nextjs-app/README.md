@@ -15,3 +15,5 @@ Build:
 npm run build
 npm start
 ```
+
+CI trigger: pushed changes on development to run Next.js CI (security scans + build). 
