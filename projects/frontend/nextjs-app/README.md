@@ -17,3 +17,5 @@ npm start
 ```
 
 CI trigger: pushed changes on development to run Next.js CI (security scans + build). 
+
+CI-trigger: updated at 2025-10-14T (automation) to force workflow run
